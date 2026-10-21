@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { registerHandler, runJob, type JobContext } from "./runner";
 import { runDiscover } from "./discover";
 import { runResearch } from "./research";
+import { runClaimify } from "./claimify";
 import { runVerify } from "./verify";
 import { runContent } from "./content";
 import { runAffiliates } from "./affiliates";
@@ -19,6 +20,7 @@ export { enqueue, execute, runJob, drain } from "./runner";
 
 registerHandler("discover", (ctx) => runDiscover(ctx).then(() => {}));
 registerHandler("research", (ctx) => runResearch(ctx).then(() => {}));
+registerHandler("claimify", (ctx) => runClaimify(ctx).then(() => {}));
 registerHandler("verify", (ctx) => runVerify(ctx).then(() => {}));
 registerHandler("content", (ctx) => runContent(ctx).then(() => {}));
 registerHandler("affiliates", (ctx) => runAffiliates(ctx).then(() => {}));
@@ -46,12 +48,22 @@ export async function scheduleVerification() {
   return runJob("verify", {});
 }
 
-/** Draft content pages for providers with enough evidence. */
+/**
+ * Draft content pages for providers whose facts are verified enough to write
+ * from. The gate is verified claim coverage — a provider needs at least one
+ * supported/conditional country eligibility or industry claim plus some
+ * evidence — not the old `evidence.status = "supported"` check the pipeline
+ * never produced.
+ */
 export async function scheduleContent(limit = 10) {
   const providers = await db.provider.findMany({
     where: {
       status: "published",
-      evidence: { some: { status: "supported" } },
+      evidence: { some: { status: { not: "outdated" } } },
+      OR: [
+        { countries: { some: { status: { in: ["supported", "conditional"] } } } },
+        { industries: { some: { status: { in: ["supported", "conditional", "restricted"] } } } },
+      ],
     },
     select: { id: true },
     take: limit,
@@ -78,6 +90,7 @@ export function refreshPublicCache() {
 export async function dailyPipeline() {
   const out: Record<string, unknown> = {};
   out.research = await scheduleResearch(10);
+  out.claimify = await runJob("claimify", {});
   out.verify = await scheduleVerification();
   out.content = await scheduleContent(5);
   out.affiliates = await runJob("affiliates", {});

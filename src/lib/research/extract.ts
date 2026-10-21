@@ -22,8 +22,54 @@ const KEYWORDS: Record<string, RegExp> = {
   application: /apply|sign.?up|onboard|underwrit|approval|requirements?/i,
 };
 
+/** Recursively collect human-readable strings from a parsed JSON blob. */
+function stringsFromJson(node: unknown, out: string[], depth = 0): void {
+  if (depth > 8 || out.length > 400) return;
+  if (typeof node === "string") {
+    // Keep real sentences, not class names, keys, hex blobs, or URLs.
+    if (node.length >= 40 && /[a-z]{3} [a-z]{3}/.test(node) && !/^https?:|^\/\//.test(node)) {
+      out.push(node);
+    }
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const n of node) stringsFromJson(n, out, depth + 1);
+    return;
+  }
+  if (node && typeof node === "object") {
+    for (const v of Object.values(node as Record<string, unknown>)) {
+      stringsFromJson(v, out, depth + 1);
+    }
+  }
+}
+
+/**
+ * JS-rendered fallback: pages like Paddle's pricing ship their content inside
+ * <script type="application/ld+json"> or framework blobs (__NEXT_DATA__) and
+ * render it client-side, leaving the DOM body nearly empty. When the rendered
+ * text is thin we mine those blobs for real strings and expose them as a
+ * pseudo-section so downstream keyword extraction still works — with the
+ * heading marked so consumers know the provenance is structured data.
+ */
+function embeddedDataSections($: cheerio.CheerioAPI): { heading: string; text: string }[] {
+  const strings: string[] = [];
+  $('script[type="application/ld+json"], script#__NEXT_DATA__, script#__NUXT_DATA__').each((_, el) => {
+    const raw = $(el).text().trim();
+    if (!raw || raw.length < 20) return;
+    try {
+      stringsFromJson(JSON.parse(raw), strings);
+    } catch {
+      /* malformed embedded JSON — skip, not evidence */
+    }
+  });
+  if (strings.length === 0) return [];
+  const text = strings.join(" ").replace(/\s+/g, " ").slice(0, 15000);
+  return [{ heading: "Embedded structured data (JSON-LD/hydration)", text }];
+}
+
 export function extractPage(html: string, baseUrl: string): ExtractedPage {
   const $ = cheerio.load(html);
+  const embedded = embeddedDataSections($);
   $("script, style, noscript, svg").remove();
 
   const title =
@@ -67,6 +113,17 @@ export function extractPage(html: string, baseUrl: string): ExtractedPage {
   });
 
   const text = $("body").text().replace(/\s+/g, " ").trim().slice(0, 20000);
+
+  // Thin rendered body → hydrate from embedded structured data.
+  if (text.length < 800 && embedded.length > 0) {
+    sections.push(...embedded);
+    return {
+      title,
+      text: `${text} ${embedded[0].text}`.trim().slice(0, 20000),
+      links,
+      sections,
+    };
+  }
 
   return { title, text, links, sections };
 }
@@ -144,10 +201,27 @@ export function findFeeMentions(text: string): string[] {
 /** Country mentions for supported-country extraction. */
 export const ISO2 = /\b(US|GB|IN|CA|AU|MY|SG|DE|FR|NL|ES|IT|IE|SE|NO|DK|FI|BE|AT|CH|PL|PT|GR|CZ|HU|RO|BG|HR|SK|SI|EE|LV|LT|LU|MT|CY|JP|HK|NZ|ZA|AE|BR|MX|ID|TH|PH|VN|KR|TW|IL|SA|TR|AR|CL|CO|KE|NG|GH|EG|PK|BD|LK)\b/g;
 
-export function findCountryMentions(text: string): string[] {
+/**
+ * Availability pages almost always spell out country NAMES ("Australia",
+ * "United Kingdom") rather than ISO codes. Pass the directory's own
+ * name→code map (db.country) so real availability lists produce codes.
+ */
+export function findCountryMentions(
+  text: string,
+  nameToCode?: Record<string, string>
+): string[] {
   const found = new Set<string>();
-  let m: RegExpExecArray | null;
-  const re = new RegExp(ISO2.source, "g");
-  while ((m = re.exec(text))) found.add(m[1]);
+  for (const m of text.matchAll(ISO2)) found.add(m[1]);
+  if (nameToCode) {
+    const lower = text.toLowerCase();
+    for (const [name, code] of Object.entries(nameToCode)) {
+      // word-boundary-ish check on the lowercase name
+      const idx = lower.indexOf(name);
+      if (idx === -1) continue;
+      const before = idx === 0 ? " " : lower[idx - 1];
+      const after = idx + name.length >= lower.length ? " " : lower[idx + name.length];
+      if (!/[a-z]/i.test(before) && !/[a-z]/i.test(after)) found.add(code);
+    }
+  }
   return [...found];
 }

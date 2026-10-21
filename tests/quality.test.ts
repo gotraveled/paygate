@@ -197,4 +197,68 @@ describe("validatePage", () => {
     });
     expect(r.ok).toBe(false);
   });
+
+  it("rejects malformed links", () => {
+    const r = validatePage({
+      ...base,
+      body: base.body + "\n\nSee [this](htp:/broken) and [that](javascript:alert(1)).",
+    });
+    expect(r.checks.find((c) => c.name === "links_wellformed")?.passed).toBe(false);
+    expect(r.ok).toBe(false);
+  });
+
+  it("accepts well-formed internal and external links", () => {
+    const r = validatePage({
+      ...base,
+      body:
+        base.body +
+        "\n\nCompare [Stripe](/providers/stripe) and see [pricing](https://stripe.com/pricing).",
+    });
+    expect(r.checks.find((c) => c.name === "links_wellformed")?.passed).toBe(true);
+  });
+
+  it("flags prose that asserts acceptance of a not_supported country", () => {
+    const r = validatePage({
+      ...base,
+      body: base.body.replace(
+        "## Official references",
+        "TestPay accepts applications from Cuba and Iran.\n\n## Official references"
+      ),
+      notSupportedCountries: ["Cuba", "Iran"],
+    });
+    const c = r.checks.find((x) => x.name === "no_fact_contradictions");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toContain("Cuba");
+    expect(r.ok).toBe(false);
+  });
+
+  it("does not flag an excluded-country section as a contradiction", () => {
+    const r = validatePage({
+      ...base,
+      body: base.body + "\n\nTestPay does not accept businesses from Cuba.",
+      notSupportedCountries: ["Cuba"],
+    });
+    const c = r.checks.find((x) => x.name === "no_fact_contradictions");
+    expect(c?.passed).toBe(true);
+  });
+
+  it("requires an affiliate disclosure when the subject has a relationship", () => {
+    const withDisclosure = validatePage({
+      ...base,
+      body: base.body + "\n\nThis page contains affiliate links; we may earn a commission.",
+      requireAffiliateDisclosure: true,
+    });
+    expect(
+      withDisclosure.checks.find((c) => c.name === "affiliate_disclosure")?.passed
+    ).toBe(true);
+
+    const without = validatePage({
+      ...base,
+      requireAffiliateDisclosure: true,
+    });
+    expect(
+      without.checks.find((c) => c.name === "affiliate_disclosure")?.passed
+    ).toBe(false);
+    expect(without.ok).toBe(false);
+  });
 });

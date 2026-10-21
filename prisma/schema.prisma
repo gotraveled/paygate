@@ -101,6 +101,8 @@ model ProviderCountryEligibility {
   status      String // supported | not_supported | conditional | undisclosed | conflicting | unverified
   notes       String?
   evidenceId  String?
+  statusReason String? // why this status (e.g. "single official list; pending corroboration")
+  confidence   Float? // 0-1 extraction+match quality, not proof of correctness
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   country  Country  @relation(fields: [countryCode], references: [code])
@@ -116,6 +118,8 @@ model ProviderIndustry {
   status     String // supported | restricted | conditional | prohibited | unverified
   notes      String?
   evidenceId String?
+  statusReason String?
+  confidence   Float?
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   industry Industry @relation(fields: [industryId], references: [id], onDelete: Cascade)
@@ -137,6 +141,8 @@ model PricingTerm {
   conditions    String? // published conditions verbatim-ish
   effectiveDate DateTime?
   evidenceId    String?
+  status        String  @default("unverified") // supported | conditional | conflicting | unverified | undisclosed
+  confidence    Float?
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
@@ -183,6 +189,8 @@ model Source {
   sourceType    String    @default("official") // official | third_party
   providerId    String? // owning provider when the source is its site
   lastFetchedAt DateTime?
+  finalUrl      String? // URL after redirects — geo-localized variants land here
+  geoContext    String? // detected locale, e.g. "/in/" path or ccTLD
   contentHash   String?
   httpStatus    Int?
   active        Boolean   @default(true)
@@ -337,6 +345,9 @@ model ContentPage {
   industrySlug String?
   quality      Json? // validation output (checks passed/failed)
   publishedAt  DateTime?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  generationVersion Int @default(1) // bumps when facts/writer change the output materially
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

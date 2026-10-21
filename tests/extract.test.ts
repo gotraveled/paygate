@@ -72,4 +72,42 @@ describe("sectionsFor / extractPage", () => {
     const page = extractPage("", "https://example.com");
     expect(page.sections).toEqual([]);
   });
+
+  it("extracts country names from availability pages, not just ISO codes", () => {
+    const codes = findCountryMentions(
+      "Stripe is available in Australia, Malaysia, Singapore, and the United States",
+      { australia: "AU", malaysia: "MY", singapore: "SG", "united states": "US" }
+    );
+    expect(codes.sort()).toEqual(["AU", "MY", "SG", "US"]);
+  });
+
+  it("does not match a country name inside a longer word", () => {
+    const codes = findCountryMentions(
+      "The Singaporean market and Singular Inc both operate here",
+      { singapore: "SG" }
+    );
+    // "Singaporean" contains "Singapore" — the boundary check must reject it
+    // while plain "Singapore" elsewhere in the text still matches.
+    const codes2 = findCountryMentions("Singapore", { singapore: "SG" });
+    expect(codes).toEqual([]);
+    expect(codes2).toEqual(["SG"]);
+  });
+
+  it("hydrates content from embedded JSON-LD when the DOM body is thin", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@type":"Product","description":"Payment processing fees of 2.9% plus $0.30 apply per transaction for standard cards, with custom rates for enterprise volume"}</script>
+      </head><body><div id="app">Loading</div></body></html>`;
+    const page = extractPage(html, "https://example.com/pricing");
+    expect(page.sections.some((s) => s.heading.includes("Embedded"))).toBe(true);
+    expect(page.text).toContain("2.9% plus $0.30");
+  });
+
+  it("does not use embedded data when the rendered body is already rich", () => {
+    const richText = `<p>${"Real visible content with fees of 3.5%. ".repeat(60)}</p>`;
+    const html = `<html><head>
+      <script type="application/ld+json">{"description":"Hidden blob text that mentions fees at 9.9% and should stay hidden when body is rich"}</script>
+      </head><body>${richText}</body></html>`;
+    const page = extractPage(html, "https://example.com/pricing");
+    expect(page.text).not.toContain("9.9%");
+  });
 });

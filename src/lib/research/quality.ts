@@ -152,6 +152,10 @@ export function validatePage(opts: {
   minLen?: number;
   requireSources?: boolean;
   keywordTerm?: string;
+  /** country names recorded as not_supported — must never appear in "accepts" claims */
+  notSupportedCountries?: string[];
+  /** true when the subject provider has an approved affiliate relationship */
+  requireAffiliateDisclosure?: boolean;
 }): QualityReport {
   const checks: QualityCheck[] = [];
   const body = opts.body;
@@ -206,6 +210,65 @@ export function validatePage(opts: {
         ? `unbacked figure(s): ${badNums.slice(0, 3).map((n) => n.value).join(", ")}`
         : undefined,
   });
+
+  // Link format — every markdown link and bare URL must be well-formed.
+  const LINK_RE = /\[[^\]]*\]\(([^)\s]+)\)|(https?:\/\/[^\s)\]]+)/g;
+  const badLinks: string[] = [];
+  for (const m of body.matchAll(LINK_RE)) {
+    const url = m[1] ?? m[2] ?? "";
+    if (url.startsWith("/") || url.startsWith("#")) continue; // internal path/anchor
+    try {
+      const u = new URL(url);
+      if (!/^https?:$/.test(u.protocol)) badLinks.push(url.slice(0, 60));
+    } catch {
+      badLinks.push(url.slice(0, 60));
+    }
+  }
+  checks.push({
+    name: "links_wellformed",
+    severity: "critical",
+    passed: badLinks.length === 0,
+    detail:
+      badLinks.length > 0 ? `malformed link(s): ${badLinks.join(", ")}` : undefined,
+  });
+
+  // Fact-status contradictions — a country recorded as not_supported must
+  // not be described as accepted anywhere in the prose.
+  if (opts.notSupportedCountries && opts.notSupportedCountries.length > 0) {
+    const contradictions: string[] = [];
+    for (const name of opts.notSupportedCountries) {
+      const safe = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(
+        `(accepts?|supports?|available (?:to|in|for)|welcomes?)\\s+[^.\\n]{0,80}\\b${safe}\\b`,
+        "i"
+      );
+      if (re.test(prose)) contradictions.push(name);
+    }
+    checks.push({
+      name: "no_fact_contradictions",
+      severity: "critical",
+      passed: contradictions.length === 0,
+      detail:
+        contradictions.length > 0
+          ? `asserts acceptance of: ${contradictions.slice(0, 3).join(", ")}`
+          : undefined,
+    });
+  }
+
+  // Affiliate disclosure — if the provider has an approved relationship, the
+  // page must say so. No silent monetization.
+  if (opts.requireAffiliateDisclosure) {
+    checks.push({
+      name: "affiliate_disclosure",
+      severity: "critical",
+      passed:
+        /affiliate|referral|partner link|may (earn|receive) a commission|paid relationship|compensat/i.test(
+          body // disclosure may live in a footer after references
+        ),
+      detail:
+        "subject has an approved affiliate relationship but the page carries no disclosure",
+    });
+  }
 
   // Near-duplicates within our own site.
   const dupes = findNearDuplicates(

@@ -111,6 +111,7 @@ export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {
 export const JOB_TYPES = [
   "discover",
   "research",
+  "claimify",
   "verify",
   "content",
   "affiliates",

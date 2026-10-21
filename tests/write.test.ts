@@ -3,6 +3,7 @@ import {
   writeProviderProfile,
   writeComparison,
   writeArticle,
+  writeCountryRoundup,
   ARTICLE_TOPICS,
 } from "@/lib/research/write";
 import { briefProviderProfile, briefComparison } from "@/lib/research/brief";
@@ -223,5 +224,86 @@ describe("writeArticle", () => {
 
   it("returns null for unknown topics", () => {
     expect(writeArticle("does-not-exist" as never)).toBeNull();
+  });
+});
+
+describe("article assembly", () => {
+  it("long articles get a contents block and a last-reviewed date", () => {
+    const out = writeArticle("chargebacks")!;
+    expect(out.body).toContain("## Contents");
+    expect(out.body).toMatch(/\*Last reviewed \d{4}-\d{2}-\d{2}\./);
+  });
+
+  it("provider profiles link back to the structured profile page", () => {
+    const facts = makeFacts();
+    const out = writeProviderProfile(facts);
+    expect(out.body).toContain("[TestPay profile page](/providers/testpay)");
+  });
+
+  it("comparisons link to both provider profiles", () => {
+    const a = makeFacts();
+    const b = makeFacts({
+      slug: "otherpay",
+      name: "OtherPay",
+      merchantApply: {
+        supported: [{ code: "GB", name: "United Kingdom", status: "supported", scope: "merchant_apply" }],
+        conditional: [],
+        notSupported: [],
+        unverified: [],
+      },
+    });
+    const out = writeComparison(a, b);
+    expect(out.body).toContain("[TestPay](/providers/testpay)");
+    expect(out.body).toContain("[OtherPay](/providers/otherpay)");
+  });
+});
+
+describe("writeCountryRoundup", () => {
+  it("splits supported, conditional, and excluded providers honestly", () => {
+    const india = { code: "IN", name: "India" };
+    const sup = makeFacts({
+      slug: "acceptor",
+      name: "AcceptPay",
+      merchantApply: {
+        supported: [{ code: "IN", name: "India", status: "supported", scope: "merchant_apply" }],
+        conditional: [],
+        notSupported: [],
+        unverified: [],
+      },
+    });
+    const con = makeFacts({
+      slug: "conditional-pay",
+      name: "CondPay",
+      merchantApply: {
+        supported: [],
+        conditional: [{ code: "IN", name: "India", status: "conditional", scope: "merchant_apply" }],
+        notSupported: [],
+        unverified: [],
+      },
+    });
+    const exc = makeFacts({
+      slug: "excluder",
+      name: "NoPay",
+      merchantApply: {
+        supported: [],
+        conditional: [],
+        notSupported: [{ code: "IN", name: "India", status: "not_supported", scope: "merchant_apply" }],
+        unverified: [],
+      },
+    });
+    const out = writeCountryRoundup(india, [sup, con, exc]);
+    expect(out).not.toBeNull();
+    expect(out!.body).toContain("accept India-registered businesses");
+    expect(out!.body).toContain("Conditional or restricted acceptance");
+    expect(out!.body).toContain("show as unavailable");
+    expect(out!.body).toContain("[AcceptPay](/providers/acceptor)");
+  });
+
+  it("returns null when no provider has any positive claim for the country", () => {
+    const out = writeCountryRoundup(
+      { code: "XX", name: "Nowhere" },
+      [makeFacts()]
+    );
+    expect(out).toBeNull();
   });
 });

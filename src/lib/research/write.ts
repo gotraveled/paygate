@@ -366,6 +366,38 @@ function sectionGapsAndSources(f: ProviderFacts): string {
 /* public writers                                                      */
 /* ------------------------------------------------------------------ */
 
+/** "## Foo" -> "- [Foo](#foo)" markdown TOC entries. */
+function tableOfContents(body: string): string | null {
+  const headings = [...body.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+  if (headings.length < 3) return null;
+  const lines = headings.map((h) => {
+    const anchor = h
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-");
+    return `- [${h}](#${anchor})`;
+  });
+  return `## Contents\n\n${lines.join("\n")}`;
+}
+
+/** Assemble a body: intro + TOC (when long enough) + sections + review note. */
+export function assembleArticle(
+  intro: string,
+  sections: string[],
+  opts: { reviewedOn?: string; methodologyNote?: string } = {}
+): string {
+  const core = `${intro}\n\n${sections.join("\n\n")}`;
+  const toc = tableOfContents(core);
+  const parts = toc
+    ? [intro, toc, ...sections]
+    : [intro, ...sections];
+  const reviewed = opts.reviewedOn ?? new Date().toISOString().slice(0, 10);
+  parts.push(
+    `*Last reviewed ${reviewed}.${opts.methodologyNote ? ` ${opts.methodologyNote}` : ""} Facts are drawn from the official sources cited below; where we could not verify something we say so rather than fill the gap.*`
+  );
+  return parts.join("\n\n");
+}
+
 export function writeProviderProfile(f: ProviderFacts): DraftOutput {
   const sections = [
     sectionOverview(f),
@@ -380,7 +412,10 @@ export function writeProviderProfile(f: ProviderFacts): DraftOutput {
     sectionGapsAndSources(f),
   ].filter((s): s is string => !!s);
 
-  const body = sections.join("\n\n");
+  const body = assembleArticle(sections[0], sections.slice(1), {
+    reviewedOn: f.lastVerifiedAt?.slice(0, 10),
+    methodologyNote: `See the [${f.name} profile page](/providers/${f.slug}) for the structured facts this article is built from.`,
+  });
   return {
     title: `${f.name}: fees, eligibility, and requirements`,
     summary: `What ${f.name} offers, which merchants and industries it accepts, published fees and payout terms — based on official sources, with unknowns stated plainly.`,
@@ -479,10 +514,13 @@ export function writeComparison(
   if (srcUrls.length > 0)
     parts.push(`## Official references\n\n${srcUrls.map((u) => `- ${u}`).join("\n")}`);
 
+  const body = assembleArticle(parts.shift()!, parts, {
+    methodologyNote: `Compare the structured records: [${a.name}](/providers/${a.slug}) and [${b.name}](/providers/${b.slug}).`,
+  });
   return {
     title: `${a.name} vs ${b.name}: eligibility, fees, and differences`,
     summary: `An evidence-based comparison of ${a.name} and ${b.name}: where each accepts merchants, published fees, industry restrictions, and who each model suits.`,
-    body: parts.join("\n\n"),
+    body,
   };
 }
 
@@ -735,6 +773,163 @@ export function writeArticle(topic: ArticleTopic): DraftOutput | null {
   return {
     title: spec.title,
     summary: spec.intro.slice(0, 160).replace(/\s+\S*$/, "") + "…",
-    body: parts.join("\n\n"),
+    body: assembleArticle(spec.intro, parts.slice(1), {
+      methodologyNote:
+        "This guide explains concepts; it is not drawn from any single provider's terms.",
+    }),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* data-driven articles — built from normalized facts, not templates    */
+/* ------------------------------------------------------------------ */
+
+function countryStatus(f: ProviderFacts, code: string): string {
+  const hit = (l: { code: string }[]) => l.some((c) => c.code === code);
+  if (hit(f.merchantApply.supported)) return "supported";
+  if (hit(f.merchantApply.conditional)) return "conditional";
+  if (hit(f.merchantApply.notSupported)) return "not_supported";
+  return "unverified";
+}
+
+/**
+ * Country eligibility roundup — "which providers accept merchants in X".
+ * Only generated when the directory has at least one positive claim for the
+ * country; unsupported/unknown is stated rather than implied.
+ */
+export function writeCountryRoundup(
+  country: { code: string; name: string },
+  providers: ProviderFacts[]
+): DraftOutput | null {
+  const supported = providers.filter(
+    (f) => countryStatus(f, country.code) === "supported"
+  );
+  const conditional = providers.filter(
+    (f) => countryStatus(f, country.code) === "conditional"
+  );
+  const excluded = providers.filter(
+    (f) => countryStatus(f, country.code) === "not_supported"
+  );
+  if (supported.length === 0 && conditional.length === 0) return null;
+
+  const link = (f: ProviderFacts) => `[${f.name}](/providers/${f.slug})`;
+
+  const sections: string[] = [];
+  if (supported.length > 0) {
+    sections.push(
+      `## Providers that accept ${country.name}-registered businesses\n\n${supported
+        .map((f) => {
+          const fees = f.pricing
+            .map((t) => `${t.label}: ${t.display}`)
+            .join("; ");
+          return `- **${link(f)}** — ${f.categoryLabel.toLowerCase()}${fees ? `; published terms include ${fees}` : ""}`;
+        })
+        .join("\n")}`
+    );
+  }
+  if (conditional.length > 0) {
+    sections.push(
+      `## Conditional or restricted acceptance\n\nThese providers may accept ${country.name} businesses depending on entity type, underwriting, or product fit — conditions are listed where our records hold them.\n\n${conditional
+        .map(
+          (f) =>
+            `- **${link(f)}** — ${f.categoryLabel.toLowerCase()}${f.registrationRequirement ? `; requirement noted: ${f.registrationRequirement}` : ""}`
+        )
+        .join("\n")}`
+    );
+  }
+  if (excluded.length > 0) {
+    sections.push(
+      `## Providers our records show as unavailable\n\n${excluded
+        .map((f) => `- ${link(f)}`)
+        .join(
+          "\n"
+        )}\n\nWhere eligibility matters for a route around this — a foreign entity or a Merchant of Record — say so explicitly rather than assuming.`
+    );
+  }
+  sections.push(
+    `## How to choose\n\n- **If a direct fit exists** (${supported.length} provider${supported.length === 1 ? "" : "s"}), start there — apply to the one whose industry list and fee model match your business.\n- **If everything is conditional**, the deciding factor is usually entity type and underwriting tolerance, not price.\n- **Verify before signing**: a provider's presence on a supported-country page does not guarantee approval; underwriting still applies.\n\nCheck each provider's profile for the evidence-linked eligibility row before applying.`
+  );
+
+  const srcUrls = [
+    ...new Set(
+      providers.flatMap((f) => f.sources.map((s) => s.url))
+    ),
+  ].slice(0, 8);
+  if (srcUrls.length > 0)
+    sections.push(
+      `## Official references\n\n${srcUrls.map((u) => `- ${u}`).join("\n")}`
+    );
+
+  const body = assembleArticle(
+    `A ${country.name}-registered business does not have the same provider menu as a US or EU one — eligibility is per-country, and several major names exclude or conditionally accept ${country.name} merchants. This page lists what our records actually show, separated into clear accepts, conditional cases, and recorded exclusions.`,
+    sections,
+    {
+      methodologyNote: `Browse the [${country.name} country page](/countries/${country.code.toLowerCase()}) for the underlying eligibility data.`,
+    }
+  );
+  return {
+    title: `Payment processors that accept ${country.name} merchants`,
+    summary: `Which payment providers accept ${country.name}-registered businesses — clear accepts, conditional cases, and recorded exclusions, from evidence-linked records.`,
+    body,
+  };
+}
+
+/**
+ * Foreign-founders guide — which providers accept non-resident founders and
+ * foreign-owned US entities, drawn from registration/residency fact fields.
+ */
+export function writeForeignFoundersGuide(
+  payments: ProviderFacts[],
+  formation: ProviderFacts[]
+): DraftOutput {
+  const accepting = payments.filter((f) =>
+    /foreign|non.?resident|international|any countr/i.test(
+      `${f.registrationRequirement ?? ""} ${f.ownerResidency ?? ""} ${f.summary ?? ""}`
+    )
+  );
+  const sections: string[] = [
+    `## The core problem\n\nMost US-based payment providers underwrite against a US entity and a US-resident owner. Foreign founders typically need a US entity first, then a provider that will accept a non-resident owner — two separate gates that fail independently.`,
+    `## Payment providers on record for foreign founders\n\n${
+      accepting.length > 0
+        ? accepting
+            .map(
+              (f) =>
+                `- **${`[${f.name}](/providers/${f.slug})`}** — ${f.categoryLabel.toLowerCase()}${f.ownerResidency ? `; residency note: ${f.ownerResidency}` : ""}`
+            )
+            .join("\n")
+        : "Our records do not currently verify any payment provider's non-resident-owner acceptance; ask each provider directly — marketing pages rarely state it."
+    }\n\nThe other route is a Merchant of Record, which sells under its own entity and largely sidesteps residency requirements.`,
+    `## Formation providers\n\n${
+      formation.length > 0
+        ? formation
+            .map(
+              (f) =>
+                `- **${`[${f.name}](/providers/${f.slug})`}** — ${f.summary ?? f.categoryLabel.toLowerCase()}`
+            )
+            .join("\n")
+        : "See the business-formation section for providers that handle foreign-owned US LLC formation."
+    }`,
+    `## What to verify before applying\n\n- Whether the provider underwrites the OWNER, the entity, or both.\n- Whether a US EIN alone is enough, or a US-resident signer is required.\n- Which industries are excluded for foreign-owned entities specifically (often stricter than the general list).\n- Payout banking: many require a US bank account in the entity's name.`,
+  ];
+  const srcUrls = [
+    ...new Set(
+      [...payments, ...formation].flatMap((f) => f.sources.map((s) => s.url))
+    ),
+  ].slice(0, 8);
+  if (srcUrls.length > 0)
+    sections.push(
+      `## Official references\n\n${srcUrls.map((u) => `- ${u}`).join("\n")}`
+    );
+
+  const body = assembleArticle(
+    `Non-US founders asking "which payment processor can I use" usually discover the answer depends on two separate eligibility checks — whether the entity type is accepted, and whether the owner's residency is. This guide lays out what our records show for each.`,
+    sections
+  );
+  return {
+    title:
+      "Payment processing for foreign founders and foreign-owned US LLCs",
+    summary:
+      "Which payment providers and formation services work for non-US founders — the entity and residency gates, verified where evidence exists.",
+    body,
   };
 }

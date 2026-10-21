@@ -8,11 +8,31 @@ import type { FetchResult } from "./fetcher";
  * through here first.
  */
 
+/** Detect geo-localization from a final URL — /in/ paths, ccTLD hosts, etc. */
+export function detectGeoContext(finalUrl: string): string | undefined {
+  try {
+    const u = new URL(finalUrl);
+    const pathLocale = u.pathname.match(/^\/([a-z]{2})(?:-[a-z]{2})?\//i);
+    if (pathLocale) return `path:/${pathLocale[1].toLowerCase()}/`;
+    const host = u.hostname.replace(/^www\./, "");
+    const tld = host.split(".").pop();
+    if (tld && tld.length === 2 && tld !== "io" && tld !== "ai" && tld !== "co")
+      return `tld:.${tld}`;
+    const sub = host.split(".")[0];
+    if (/^(in|us|uk|eu|au|ca|sg|my)$/.test(sub)) return `subdomain:${sub}`;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function upsertSource(
   url: string,
   result: FetchResult,
   opts: { title?: string; providerId?: string; sourceType?: string } = {}
 ) {
+  const finalUrl = result.finalUrl && result.finalUrl !== url ? result.finalUrl : null;
+  const geoContext = detectGeoContext(result.finalUrl || url);
   return db.source.upsert({
     where: { url },
     create: {
@@ -22,6 +42,8 @@ export async function upsertSource(
       providerId: opts.providerId,
       sourceType: opts.sourceType ?? "official",
       lastFetchedAt: result.fetchedAt,
+      finalUrl,
+      geoContext,
       contentHash: result.hash,
       httpStatus: result.status,
       active: result.status >= 200 && result.status < 400,
@@ -29,6 +51,8 @@ export async function upsertSource(
     update: {
       title: opts.title ?? undefined,
       lastFetchedAt: result.fetchedAt,
+      finalUrl,
+      geoContext,
       contentHash: result.hash,
       httpStatus: result.status,
       active: result.status >= 200 && result.status < 400,

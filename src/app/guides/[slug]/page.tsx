@@ -1,10 +1,59 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Markdown } from "@/lib/markdown";
 import { getPublishedPage } from "@/lib/queries";
 import { formatDate } from "@/lib/utils";
 import { pageMetadata } from "@/lib/seo";
+
+/** Deterministic hash for the hero artwork. */
+function hashSlug(s: string): number {
+  let h = 0;
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h;
+}
+
+/** Original geometric illustration — generated per slug, no stock assets. */
+function HeroArt({ seed }: { seed: string }) {
+  const h = hashSlug(seed);
+  const hue = h % 360;
+  const shapes = Array.from({ length: 7 }, (_, i) => {
+    const x = ((h >> (i * 3)) % 70) + 14;
+    const y = ((h >> (i * 4)) % 55) + 16;
+    const r = 5 + (((h >> i) % 4) * 5);
+    const alt = (h >> i) % 3;
+    return { x, y, r, alt, i };
+  });
+  return (
+    <svg viewBox="0 0 100 100" className="h-full w-full" role="img" aria-label="Abstract payment-flow illustration" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <linearGradient id={`g${hue}`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor={`hsl(${hue} 60% 95%)`} />
+          <stop offset="100%" stopColor={`hsl(${(hue + 40) % 360} 55% 90%)`} />
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" fill={`url(#g${hue})`} />
+      {shapes.map((s) =>
+        s.alt === 0 ? (
+          <circle key={s.i} cx={s.x} cy={s.y} r={s.r / 2.5} fill={`hsl(${hue} 45% 45%)`} opacity="0.5" />
+        ) : s.alt === 1 ? (
+          <rect key={s.i} x={s.x} y={s.y} width={s.r} height={s.r / 2.5} rx="1" fill={`hsl(${(hue + 60) % 360} 40% 50%)`} opacity="0.35" />
+        ) : (
+          <line key={s.i} x1={s.x} y1={s.y} x2={s.x + s.r} y2={s.y - s.r / 2} stroke={`hsl(${hue} 40% 40%)`} strokeWidth="0.8" opacity="0.5" />
+        )
+      )}
+    </svg>
+  );
+}
+
+/** Pull `## ` headings from the body for the sidebar TOC. */
+function tocEntries(body: string): { id: string; label: string }[] {
+  return [...body.matchAll(/^## (.+)$/gm)].map((m) => ({
+    id: m[1].toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-"),
+    label: m[1],
+  }));
+}
 
 type Params = Promise<{ slug: string }>;
 
@@ -36,7 +85,7 @@ export default async function GuidePage({ params }: { params: Params }) {
   const page = await getPublishedPage(slug);
   if (!page) notFound();
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
+    <main className="mx-auto max-w-4xl px-4 py-10">
       <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>
         <Body params={params} />
       </Suspense>
@@ -49,29 +98,100 @@ async function Body({ params }: { params: Params }) {
   const page = await getPublishedPage(slug);
   if (!page || page.status !== "published") notFound();
 
+  const toc = tocEntries(page.body);
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: page.title,
+    description: page.summary ?? undefined,
+    datePublished: page.publishedAt?.toISOString(),
+    dateModified: page.updatedAt.toISOString(),
+    author: { "@type": "Organization", name: "PayGate Editorial" },
+    mainEntityOfPage: `${siteUrl}/guides/${slug}`,
+  };
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: siteUrl },
+      { "@type": "ListItem", position: 2, name: "Guides", item: `${siteUrl}/guides` },
+      { "@type": "ListItem", position: 3, name: page.title },
+    ],
+  };
+
   return (
     <article>
-      <p className="text-xs uppercase tracking-wide text-zinc-500">{page.type}</p>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">
-        {page.title}
-      </h1>
-      {page.publishedAt && (
-        <p className="mt-2 text-sm text-zinc-500">
-          Published {formatDate(page.publishedAt)}
-          {page.provider ? ` · covers ${page.provider.name}` : ""}
-        </p>
-      )}
-      <div className="mt-8">
-        <Markdown source={page.body} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
+
+      <nav aria-label="Breadcrumb" className="text-xs text-zinc-500">
+        <Link href="/" className="hover:underline">Home</Link>
+        {" / "}
+        <Link href="/guides" className="hover:underline">Guides</Link>
+        {" / "}
+        <span className="text-zinc-700">{page.title}</span>
+      </nav>
+
+      <div className="mt-4 flex items-start gap-6">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-blue-700">{page.type}</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">{page.title}</h1>
+          {page.summary && (
+            <p className="mt-3 text-[15px] leading-6 text-zinc-600">{page.summary}</p>
+          )}
+        </div>
+        <div className="hidden w-36 shrink-0 overflow-hidden rounded-xl sm:block sm:h-36">
+          <HeroArt seed={slug} />
+        </div>
       </div>
-      <p className="mt-10 border-t border-zinc-200 pt-4 text-xs text-zinc-500">
-        This article is generated from our verified provider database and
-        reviewed under our{" "}
-        <a href="/editorial-methodology" className="underline">
-          editorial methodology
-        </a>
-        .
-      </p>
+
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 border-y border-zinc-200 py-2.5 text-xs text-zinc-500">
+        {page.publishedAt && <span>Published {formatDate(page.publishedAt)}</span>}
+        {page.reviewedAt && <span>Reviewed {formatDate(page.reviewedAt)}</span>}
+        {page.provider && (
+          <span>
+            Covers <Link href={`/providers/${page.provider.slug}`} className="text-blue-700 hover:underline">{page.provider.name}</Link>
+          </span>
+        )}
+        <Link href="/editorial-methodology" className="ml-auto text-blue-700 hover:underline">
+          Editorial methodology
+        </Link>
+      </div>
+
+      <div className="mt-8 lg:flex lg:gap-10">
+        {toc.length >= 3 && (
+          <aside className="mb-6 lg:order-2 lg:mb-0 lg:w-56 lg:shrink-0">
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 lg:sticky lg:top-6">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">On this page</p>
+              <ul className="mt-2 space-y-1.5 text-[13px]">
+                {toc.map((t) => (
+                  <li key={t.id}>
+                    <a href={`#${t.id}`} className="text-zinc-600 hover:text-blue-700">{t.label}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </aside>
+        )}
+        <div className="min-w-0 flex-1">
+          <Markdown source={page.body} />
+        </div>
+      </div>
+
+      <footer className="mt-10 space-y-2 border-t border-zinc-200 pt-4 text-xs text-zinc-500">
+        <p>
+          This article is generated from our provider records and checked
+          against official sources; fields we could not verify are labeled as
+          such rather than filled in. It is produced under our{" "}
+          <Link href="/editorial-methodology" className="underline">editorial methodology</Link>.
+        </p>
+        <p>
+          Some pages may include affiliate relationships; if so they are
+          disclosed in the article body. Recommendations are based on
+          eligibility fit, not commissions.
+        </p>
+      </footer>
     </article>
   );
 }

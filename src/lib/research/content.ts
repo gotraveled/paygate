@@ -7,6 +7,8 @@ import {
   writeProviderProfile,
   writeComparison,
   writeArticle,
+  writeCountryRoundup,
+  writeForeignFoundersGuide,
   ARTICLE_TOPICS,
   type ArticleTopic,
 } from "./write";
@@ -148,13 +150,20 @@ async function persistDraft(opts: {
 export async function runContent(ctx: JobContext) {
   const providerId = ctx.payload.providerId as string | undefined;
   const compare = ctx.payload.compare as string[] | undefined; // [slugA, slugB]
-  const topic = ctx.payload.topic as ArticleTopic | undefined;
+  const topic = ctx.payload.topic as string | undefined;
+  const countryCode = ctx.payload.countryCode as string | undefined;
 
   if (compare && compare.length === 2) {
     return await draftComparison(compare[0], compare[1]);
   }
-  if (topic && ARTICLE_TOPICS.includes(topic)) {
-    return await draftArticle(topic);
+  if (topic === "foreign-founders") {
+    return await draftForeignFounders();
+  }
+  if (countryCode) {
+    return await draftCountryRoundup(countryCode);
+  }
+  if (topic && (ARTICLE_TOPICS as readonly string[]).includes(topic)) {
+    return await draftArticle(topic as ArticleTopic);
   }
   if (providerId) {
     return await draftProviderProfile(providerId);
@@ -188,6 +197,8 @@ async function draftProviderProfile(providerId: string) {
     minLen: 1200,
     requireSources: true,
     keywordTerm: facts.name,
+    notSupportedCountries: facts.merchantApply.notSupported.map((c) => c.name),
+    requireAffiliateDisclosure: facts.affiliateApproved,
   });
 
   // Source-claim similarity warning (advisory): our prose is built from
@@ -296,6 +307,138 @@ async function draftArticle(topic: ArticleTopic) {
     type: "article",
     title: draft.title,
     summary: draft.summary,
+    body: draft.body,
+    brief,
+    validation,
+  });
+}
+
+/* ---------------- data-driven articles ---------------- */
+
+/** All published payment providers as normalized facts — roundup inputs. */
+async function publishedFacts(categoryIn?: string[]) {
+  const providers = await db.provider.findMany({
+    where: {
+      status: "published",
+      ...(categoryIn ? { category: { in: categoryIn } } : {}),
+    },
+    select: { id: true },
+  });
+  const facts: Awaited<ReturnType<typeof normalizeProvider>>[] = [];
+  for (const p of providers) facts.push(await normalizeProvider(p.id));
+  return facts.filter(
+    (f): f is NonNullable<typeof f> => f !== null
+  );
+}
+
+async function draftCountryRoundup(countryCode: string) {
+  const country = await db.country.findUnique({
+    where: { code: countryCode.toUpperCase() },
+  });
+  if (!country) throw new Error(`country ${countryCode} not found`);
+  const facts = await publishedFacts();
+  const draft = writeCountryRoundup(
+    { code: country.code, name: country.name },
+    facts
+  );
+  const slug = `article-${country.code.toLowerCase()}-payment-processors`;
+  const brief: ContentBrief = {
+    type: "article",
+    subject: `${country.code} provider roundup`,
+    audience: `${country.name}-registered businesses choosing a provider`,
+    intent: `which payment providers accept ${country.name} merchants`,
+    uniqueValue: [
+      "eligibility split into supported / conditional / excluded",
+      "claims trace back to evidence-linked records",
+    ],
+    keyEvidence: [`merchant_apply claims for ${country.code}`],
+    missingInfo: [],
+    go: !!draft,
+    reasons: draft
+      ? ["sufficient positive or conditional claims exist"]
+      : ["no positive claims for this country — page would be empty"],
+  };
+  const body = draft?.body ?? "";
+  const others = await otherPageBodies(slug);
+  const validation = validatePage({
+    title: draft?.title ?? `${country.name} payment processors`,
+    body,
+    sources: facts.flatMap((f) => f.sources.map((s) => s.url)),
+    factTexts: facts.flatMap((f) => factCorpus(f)),
+    otherPages: others,
+    selfSlug: slug,
+    minLen: 800,
+    requireSources: true,
+  });
+  return await persistDraft({
+    slug,
+    type: "article",
+    title: draft?.title ?? `${country.name} payment processors`,
+    summary:
+      draft?.summary ??
+      `Payment providers accepting ${country.name} merchants.`,
+    body,
+    brief,
+    countryCode: country.code,
+    validation,
+  });
+}
+
+async function draftForeignFounders() {
+  const payments = await publishedFacts([
+    "payment_gateway",
+    "payment_processor",
+    "payfac",
+    "mor",
+    "merchant_account",
+    "high_risk",
+  ]);
+  const formation = await publishedFacts(["formation"]);
+  const draft = writeForeignFoundersGuide(payments, formation);
+  const slug = "article-foreign-founders";
+  const brief: ContentBrief = {
+    type: "article",
+    subject: "foreign founders / non-US owners",
+    audience: "non-US founders forming US entities",
+    intent:
+      "which payment providers accept foreign founders and foreign-owned US LLCs",
+    uniqueValue: [
+      "separates entity acceptance from owner-residency acceptance",
+      "states where records are silent instead of guessing",
+    ],
+    keyEvidence: [
+      "registrationRequirement / ownerResidency fields",
+      "formation-provider records",
+    ],
+    missingInfo: [],
+    go: true,
+    reasons: ["durable high-intent query across the whole directory"],
+  };
+  const others = await otherPageBodies(slug);
+  const validation = validatePage({
+    title: draft.title,
+    body: draft.body,
+    sources: [...payments, ...formation].flatMap((f) =>
+      f.sources.map((s) => s.url)
+    ),
+    factTexts: [...payments, ...formation].flatMap((f) => factCorpus(f)),
+    otherPages: others,
+    selfSlug: slug,
+    minLen: 800,
+    requireSources: true,
+  });
+  return await persistDraft({
+    slug,
+    type: "article",
+    title: draft.title,
+    summary: draft.summary,
+    body: draft.body,
+    brief,
+    validation,
+  });
+}
+
+/* ---------------- ummary,
     body: draft.body,
     brief,
     validation,
