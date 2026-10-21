@@ -48,13 +48,15 @@ export interface EvidenceInput {
 }
 
 export async function recordEvidence(input: EvidenceInput) {
-  // Supersede prior active evidence for the same provider+field that
-  // carries a different value — keeps only the newest claim per field.
+  // Supersede prior active evidence for the same provider+field+source —
+  // per-source baselines must survive so change detection can compare
+  // "what this page said last time" against "what it says now".
   if (input.providerId) {
     await db.evidence.updateMany({
       where: {
         providerId: input.providerId,
         field: input.field,
+        sourceId: input.sourceId ?? null,
         status: { not: "outdated" },
       },
       data: { status: "outdated" },

@@ -15,6 +15,9 @@ import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
 
 type Params = Promise<{ slug: string }>;
 
+// Blocking route: unpublished providers must return a real 404 status.
+export const instant = false;
+
 export async function generateMetadata({
   params,
 }: {
@@ -32,7 +35,12 @@ export async function generateMetadata({
   });
 }
 
-export default function ProviderPage({ params }: { params: Params }) {
+export default async function ProviderPage({ params }: { params: Params }) {
+  const { slug } = await params;
+  // Existence + status check outside Suspense so notFound() yields a real
+  // 404 status (inside the streamed body it lands after the 200 shell).
+  const p = await getProviderBySlug(slug);
+  if (!p || p.status !== "published") notFound();
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
       <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>

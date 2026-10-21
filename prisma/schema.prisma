@@ -100,6 +100,7 @@ model ProviderCountryEligibility {
   scope       String // merchant_apply | customer_pay | settlement
   status      String // supported | not_supported | conditional | undisclosed | conflicting | unverified
   notes       String?
+  evidenceId  String?
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   country  Country  @relation(fields: [countryCode], references: [code])
@@ -114,6 +115,7 @@ model ProviderIndustry {
   industryId String
   status     String // supported | restricted | conditional | prohibited | unverified
   notes      String?
+  evidenceId String?
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   industry Industry @relation(fields: [industryId], references: [id], onDelete: Cascade)
@@ -328,7 +330,8 @@ model ContentPage {
   title        String
   summary      String?
   body         String // markdown
-  status       String    @default("draft") // draft | review | published | archived
+  status       String    @default("draft") // workflow status — see CONTENT_STATUSES
+  brief        Json? // internal content brief (audience, purpose, gaps)
   providerId   String?
   countryCode  String?
   industrySlug String?

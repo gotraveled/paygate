@@ -8,6 +8,10 @@ import { pageMetadata } from "@/lib/seo";
 
 type Params = Promise<{ slug: string }>;
 
+// Blocking route: the published-status check in the page component must run
+// before the response commits so unpublished drafts return a real 404 status.
+export const instant = false;
+
 export async function generateMetadata({
   params,
 }: {
@@ -23,7 +27,14 @@ export async function generateMetadata({
   });
 }
 
-export default function GuidePage({ params }: { params: Params }) {
+export default async function GuidePage({ params }: { params: Params }) {
+  const { slug } = await params;
+  // Check existence OUTSIDE Suspense — under Cache Components a notFound()
+  // thrown inside the streamed body lands after the 200 shell has committed,
+  // producing a soft-404. Only "published" pages exist publicly; drafts,
+  // review-queue items, and rejected pages must return a real 404.
+  const page = await getPublishedPage(slug);
+  if (!page) notFound();
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">
       <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>

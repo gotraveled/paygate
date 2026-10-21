@@ -9,6 +9,9 @@ import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
 
 type Params = Promise<{ code: string }>;
 
+// Blocking route: unknown country codes must return a real 404 status.
+export const instant = false;
+
 export async function generateMetadata({
   params,
 }: {
@@ -24,7 +27,11 @@ export async function generateMetadata({
   });
 }
 
-export default function CountryPage({ params }: { params: Params }) {
+export default async function CountryPage({ params }: { params: Params }) {
+  const { code } = await params;
+  // Existence check outside Suspense so notFound() yields a real 404 status.
+  const country = await getCountry(code.toUpperCase());
+  if (!country) notFound();
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
       <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>

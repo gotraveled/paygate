@@ -118,6 +118,29 @@ export const JOB_TYPES = [
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 
+// -- Content publication workflow -------------------------------------------
+// Only "published" is public-facing; every other status is internal pipeline state.
+
+export const CONTENT_STATUSES = [
+  "research_pending",
+  "evidence_collected",
+  "facts_normalized",
+  "draft",
+  "quality_checking",
+  "review_required",
+  "approved",
+  "published",
+  "update_required",
+  "rejected",
+  "archived",
+] as const;
+export type ContentStatus = (typeof CONTENT_STATUSES)[number];
+
+/** Statuses that must never appear on public pages or sitemaps. */
+export const INTERNAL_STATUSES: ReadonlySet<string> = new Set(
+  CONTENT_STATUSES.filter((s) => s !== "published")
+);
+
 export const AFFILIATE_STATUSES = [
   "discovered",
   "researched",

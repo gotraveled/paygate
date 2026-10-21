@@ -148,8 +148,8 @@ export async function getPublishedPage(slug: string) {
   "use cache";
   cacheLife(HOURS);
   cacheTag("pages", `page-${slug}`);
-  return db.contentPage.findUnique({
-    where: { slug },
+  return db.contentPage.findFirst({
+    where: { slug, status: "published" },
     include: { provider: true },
   });
 }

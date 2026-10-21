@@ -67,6 +67,15 @@ export async function recordChange(opts: {
     });
   }
 
+  // Any published page derived from this provider's facts is now stale —
+  // demote it so the public never sees outdated claims as current.
+  if (opts.providerId) {
+    await db.contentPage.updateMany({
+      where: { providerId: opts.providerId, status: "published" },
+      data: { status: "update_required" },
+    });
+  }
+
   return { change, applied: autoApply };
 }
 

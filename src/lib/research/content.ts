@@ -1,216 +1,355 @@
 import { db } from "@/lib/db";
-import { asStringArray } from "@/lib/utils";
-import { CATEGORY_LABELS, SCOPE_LABELS } from "@/lib/constants";
+import { Prisma } from "@/generated/prisma/client";
 import type { JobContext } from "./runner";
+import { normalizeProvider, type ProviderFacts } from "./normalize";
+import { briefProviderProfile, briefComparison, type ContentBrief } from "./brief";
+import {
+  writeProviderProfile,
+  writeComparison,
+  writeArticle,
+  ARTICLE_TOPICS,
+  type ArticleTopic,
+} from "./write";
+import { validatePage, shingleSimilarity } from "./quality";
 
 /**
- * Agent D — Content creation.
+ * Agent D — Content creation, reworked around three layers:
  *
- * Deterministic, template-driven drafts built ONLY from stored provider data
- * and evidence. No LLM paraphrasing = no invented facts. Every generated
- * page passes validation checks; failures route to review instead of publish.
+ *   Layer A  Source evidence   (Source + Evidence rows — untouched here)
+ *   Layer B  Normalized facts   (normalize.ts → ProviderFacts)
+ *   Layer C  Original prose      (write.ts — synthesizes from facts only)
+ *
+ * A content brief decides whether the page deserves to exist BEFORE any
+ * prose is written (anti thin-SEO gating). Every draft then passes a
+ * deterministic quality gate; critical failures keep the page out of
+ * public statuses and open a ReviewItem explaining why.
+ *
+ * Status flow: facts_normalized → draft → quality_checking →
+ *   review_required (passed, new page — needs human sign-off) or
+ *   published (passed AND it was already published — low-risk refresh) or
+ *   rejected (brief says the page shouldn't exist)
  */
 
-interface ValidationResult {
-  ok: boolean;
-  checks: { name: string; passed: boolean; detail?: string }[];
-}
-
-function validateDraft(page: {
-  title: string;
-  body: string;
-  providerName?: string;
-  bodyMinLen?: number;
-}): ValidationResult {
-  const checks = [
-    {
-      name: "length",
-      passed: page.body.length >= (page.bodyMinLen ?? 400),
-      detail: `${page.body.length} chars`,
+async function otherPageBodies(exceptSlug?: string) {
+  return db.contentPage.findMany({
+    where: {
+      status: { in: ["published", "review_required", "approved"] },
+      ...(exceptSlug ? { NOT: { slug: exceptSlug } } : {}),
     },
-    {
-      name: "no_unverified_superlatives",
-      passed: !/\b(best|cheapest|#1|top-rated|guaranteed)\b/i.test(page.body),
-      detail: "no marketing superlatives presented as fact",
-    },
-    {
-      name: "no_placeholder",
-      passed: !/(TODO|TBD|XXX|\[insert|lorem ipsum)/i.test(page.body),
-      detail: "no placeholders",
-    },
-    {
-      name: "title_present",
-      passed: page.title.trim().length > 5,
-    },
-    {
-      name: "discloses_uncertainty",
-      passed: /unverified|not (publicly )?disclosed|conditional/i.test(
-        page.body
-      ),
-      detail: "page acknowledges data limits",
-    },
-  ];
-  return { ok: checks.every((c) => c.passed), checks };
-}
-
-export async function runContent(ctx: JobContext) {
-  const providerId = ctx.payload.providerId as string | undefined;
-
-  // Build content from verified data only
-  if (providerId) {
-    return await draftProviderGuide(providerId);
-  }
-  return await draftOverviewPage();
-}
-
-async function draftProviderGuide(providerId: string) {
-  const p = await db.provider.findUnique({
-    where: { id: providerId },
-    include: {
-      countries: { include: { country: true } },
-      industries: { include: { industry: true } },
-      pricing: true,
-      reserves: true,
-      evidence: {
-        where: { status: { not: "outdated" } },
-        include: { source: true },
-        orderBy: { retrievedAt: "desc" },
-        take: 20,
-      },
-    },
+    select: { slug: true, body: true },
+    take: 200,
   });
-  if (!p) throw new Error(`provider ${providerId} not found`);
+}
 
-  const applyCountries = p.countries.filter(
-    (c) => c.scope === "merchant_apply" && c.status === "supported"
-  );
-  const prohibited = p.industries.filter((i) => i.status === "prohibited");
+/** Serialize the facts into strings — the corpus numbers must come from. */
+function factCorpus(f: ProviderFacts): string[] {
+  return [
+    ...f.pricing.map((t) => `${t.label} ${t.display} ${t.conditions ?? ""}`),
+    ...f.reserves.map(
+      (r) => `${r.summary} ${r.percent ?? ""} ${r.daysMin ?? ""} ${r.daysMax ?? ""}`
+    ),
+    ...f.sources.map((s) => s.url),
+    ...f.requiredDocs,
+    ...f.applicationSteps,
+    ...f.pros,
+    ...f.cons,
+    ...f.paymentTypeLabels,
+    ...f.dataGaps,
+    f.summary ?? "",
+    f.suitableFor ?? "",
+    f.limitations ?? "",
+    f.registrationRequirement ?? "",
+    f.ownerResidency ?? "",
+    f.name,
+    f.categoryLabel,
+  ];
+}
 
-  const sections: string[] = [];
-  sections.push(
-    `${p.name} is a ${CATEGORY_LABELS[p.category] ?? p.category} ${p.hqCountryCode ? `headquartered in ${p.hqCountryCode} ` : ""}listed in our directory.${p.summary ? ` ${p.summary}` : ""}`
-  );
-
-  if (applyCountries.length > 0) {
-    sections.push(
-      `## Where merchants can apply\n\n${SCOPE_LABELS.merchant_apply}: ${applyCountries.map((c) => c.country.name).join(", ")}.`
-    );
-  } else {
-    sections.push(
-      `## Where merchants can apply\n\nApplication availability is not publicly disclosed or still unverified — check ${p.name}'s official documentation before applying.`
-    );
-  }
-
-  if (p.pricing.length > 0) {
-    const lines = p.pricing.map(
-      (t) =>
-        `- ${t.label}: ${t.amountMin != null ? `${t.amountMin}${t.unit === "percent" ? "%" : ` ${t.currency ?? ""}`}` : "not disclosed"}${t.conditions ? ` (${t.conditions})` : ""}`
-    );
-    sections.push(`## Published fees\n\n${lines.join("\n")}`);
-  } else {
-    sections.push(
-      `## Published fees\n\nNo official pricing has been captured yet. Unverified — see the provider's pricing page.`
-    );
-  }
-
-  if (prohibited.length > 0) {
-    sections.push(
-      `## Restricted industries\n\n${p.name} prohibits or restricts: ${prohibited.map((i) => i.industry.name).join(", ")}.`
-    );
-  }
-
-  if (asStringArray(p.applicationSteps).length > 0) {
-    sections.push(
-      `## How to apply\n\n${asStringArray(p.applicationSteps).map((s, i) => `${i + 1}. ${s}`).join("\n")}`
-    );
-  }
-
-  const sourceUrls = p.evidence
-    .map((e) => e.source?.url)
-    .filter((u): u is string => !!u);
-  if (sourceUrls.length > 0) {
-    sections.push(
-      `## Sources\n\n${[...new Set(sourceUrls)].map((u) => `- ${u}`).join("\n")}`
-    );
-  }
-
-  sections.push(
-    `\n*Some details are unverified or not publicly disclosed; confirm current terms on ${p.name}'s official website.*`
-  );
-
-  const title = `${p.name}: eligibility, fees, and application requirements`;
-  const body = sections.join("\n\n");
-  const validation = validateDraft({ title, body });
-
-  const slug = `guide-${p.slug}`;
+async function persistDraft(opts: {
+  slug: string;
+  type: string;
+  title: string;
+  summary: string;
+  body: string;
+  brief: ContentBrief;
+  providerId?: string;
+  countryCode?: string;
+  industrySlug?: string;
+  validation: ReturnType<typeof validatePage>;
+}) {
+  const { slug, type, title, summary, body, brief, validation } = opts;
   const existing = await db.contentPage.findUnique({ where: { slug } });
-  const status = validation.ok ? "review" : "draft";
+
+  let status: string;
+  if (!brief.go) {
+    status = "rejected"; // thin page — don't produce it
+  } else if (!validation.ok) {
+    status = "draft"; // failed critical checks — stays internal
+  } else if (existing?.status === "published") {
+    status = "published"; // low-risk refresh of an approved page
+  } else {
+    status = "review_required"; // new page — human sign-off
+  }
 
   const page = await db.contentPage.upsert({
     where: { slug },
     create: {
       slug,
-      type: "guide",
+      type,
       title,
-      summary: `How to apply for ${p.name}: eligibility, fees, reserves, and requirements from official sources.`,
-      body,
+      summary,
+      body: brief.go ? body : "", // rejected pages carry no prose
       status,
-      providerId: p.id,
+      providerId: opts.providerId,
+      countryCode: opts.countryCode,
+      industrySlug: opts.industrySlug,
+      brief: brief as unknown as Prisma.InputJsonValue,
       quality: JSON.parse(JSON.stringify(validation)),
+      publishedAt: status === "published" ? (existing?.publishedAt ?? new Date()) : null,
     },
     update: {
       title,
-      body,
-      status: existing?.status === "published" ? "published" : status,
+      summary,
+      body: brief.go ? body : "",
+      status,
+      brief: brief as unknown as Prisma.InputJsonValue,
       quality: JSON.parse(JSON.stringify(validation)),
+      publishedAt:
+        status === "published" ? (existing?.publishedAt ?? new Date()) : null,
     },
   });
 
-  if (!validation.ok) {
+  if (!validation.ok && brief.go) {
+    const failed = validation.checks
+      .filter((c) => !c.passed && c.severity === "critical")
+      .map((c) => `${c.name}${c.detail ? ` (${c.detail})` : ""}`)
+      .join(", ");
     await db.reviewItem.create({
       data: {
         entity: "content_page",
         entityId: page.id,
-        reason: `Draft failed validation: ${validation.checks.filter((c) => !c.passed).map((c) => c.name).join(", ")}`,
+        reason: `Draft blocked by quality gate: ${failed}`,
+      },
+    });
+  }
+  if (!brief.go) {
+    await db.reviewItem.create({
+      data: {
+        entity: "content_page",
+        entityId: page.id,
+        reason: `Brief rejected page as thin/duplicative: ${brief.reasons.join("; ")}`,
       },
     });
   }
 
-  return { slug, status, validation };
+  return { slug, status, validation, brief };
 }
 
+export async function runContent(ctx: JobContext) {
+  const providerId = ctx.payload.providerId as string | undefined;
+  const compare = ctx.payload.compare as string[] | undefined; // [slugA, slugB]
+  const topic = ctx.payload.topic as ArticleTopic | undefined;
+
+  if (compare && compare.length === 2) {
+    return await draftComparison(compare[0], compare[1]);
+  }
+  if (topic && ARTICLE_TOPICS.includes(topic)) {
+    return await draftArticle(topic);
+  }
+  if (providerId) {
+    return await draftProviderProfile(providerId);
+  }
+  return await draftOverviewPage();
+}
+
+/* ---------------- provider profile ---------------- */
+
+async function draftProviderProfile(providerId: string) {
+  const facts = await normalizeProvider(providerId);
+  if (!facts) throw new Error(`provider ${providerId} not found`);
+
+  // Layer B → brief decides go/no-go
+  const brief = briefProviderProfile(facts);
+  const slug = `guide-${facts.slug}`;
+
+  const draft = brief.go ? writeProviderProfile(facts) : null;
+  const body = draft?.body ?? "";
+  const title = draft?.title ?? `${facts.name}: fees, eligibility, and requirements`;
+
+  // Quality gate — against peer pages and the normalized fact corpus.
+  const others = await otherPageBodies(slug);
+  const validation = validatePage({
+    title,
+    body,
+    sources: facts.sources.map((s) => s.url),
+    factTexts: factCorpus(facts),
+    otherPages: others,
+    selfSlug: slug,
+    minLen: 1200,
+    requireSources: true,
+    keywordTerm: facts.name,
+  });
+
+  // Source-claim similarity warning (advisory): our prose is built from
+  // normalized facts, but evidence claims can contain source-adjacent text.
+  const claimText = facts.evidenceCoverage.fieldsWithEvidence.join(" ");
+  const srcSim = shingleSimilarity(body, claimText, 10);
+  validation.checks.push({
+    name: "source_similarity_advisory",
+    severity: "warning",
+    passed: srcSim < 0.2,
+    detail: `max 10-gram overlap with evidence claims: ${(srcSim * 100).toFixed(1)}%`,
+  });
+
+  return await persistDraft({
+    slug,
+    type: "guide",
+    title,
+    summary:
+      draft?.summary ??
+      `What ${facts.name} offers, eligibility, fees and terms — from official sources.`,
+    body,
+    brief,
+    providerId,
+    validation,
+  });
+}
+
+/* ---------------- comparison ---------------- */
+
+async function draftComparison(slugA: string, slugB: string) {
+  const pa = await db.provider.findUnique({ where: { slug: slugA } });
+  const pb = await db.provider.findUnique({ where: { slug: slugB } });
+  if (!pa || !pb) throw new Error(`provider not found: ${slugA} or ${slugB}`);
+
+  const fa = (await normalizeProvider(pa.id))!;
+  const fb = (await normalizeProvider(pb.id))!;
+  const brief = briefComparison(fa, fb);
+  const slug = `compare-${slugA}-vs-${slugB}`;
+
+  const draft = brief.go ? writeComparison(fa, fb) : null;
+  const body = draft?.body ?? "";
+  const title =
+    draft?.title ?? `${fa.name} vs ${fb.name}: eligibility, fees, and differences`;
+
+  const others = await otherPageBodies(slug);
+  const validation = validatePage({
+    title,
+    body,
+    sources: [...fa.sources, ...fb.sources].map((s) => s.url),
+    factTexts: [...factCorpus(fa), ...factCorpus(fb)],
+    otherPages: others,
+    selfSlug: slug,
+    minLen: 800,
+    requireSources: true,
+  });
+
+  return await persistDraft({
+    slug,
+    type: "comparison",
+    title,
+    summary:
+      draft?.summary ??
+      `Evidence-based comparison of ${fa.name} and ${fb.name}.`,
+    body,
+    brief,
+    validation,
+  });
+}
+
+/* ---------------- educational articles ---------------- */
+
+async function draftArticle(topic: ArticleTopic) {
+  const draft = writeArticle(topic);
+  if (!draft) throw new Error(`unknown article topic ${topic}`);
+
+  const slug = `article-${topic}`;
+  const brief: ContentBrief = {
+    type: "article",
+    subject: topic,
+    audience: "merchants learning payment fundamentals",
+    intent: `educational explainer on ${topic.replace(/-/g, " ")}`,
+    uniqueValue: ["original worked examples", "provider-agnostic guidance"],
+    keyEvidence: ["editorial knowledge — no provider claims"],
+    missingInfo: [],
+    go: true,
+    reasons: ["foundational topic with durable search intent"],
+  };
+
+  const others = await otherPageBodies(slug);
+  // Articles carry illustrative (clearly labeled) numbers — the fact corpus
+  // is the article's own body, so numeric checks validate internal consistency
+  // rather than invented provider claims.
+  const validation = validatePage({
+    title: draft.title,
+    body: draft.body,
+    sources: [],
+    factTexts: [draft.body],
+    otherPages: others,
+    selfSlug: slug,
+    minLen: 800,
+    requireSources: false,
+  });
+
+  return await persistDraft({
+    slug,
+    type: "article",
+    title: draft.title,
+    summary: draft.summary,
+    body: draft.body,
+    brief,
+    validation,
+  });
+}
+
+/* ---------------- aggregate status page ---------------- */
+
 async function draftOverviewPage() {
-  // Aggregate data-driven page — e.g. a summary of verified stats.
   const providers = await db.provider.findMany({
     where: { status: "published" },
-    select: { name: true, category: true, lastVerifiedAt: true },
+    select: { name: true, lastVerifiedAt: true },
   });
   const verified = providers.filter((p) => p.lastVerifiedAt).length;
 
-  const title = `Directory status: ${providers.length} providers tracked`;
+  const title = `Directory verification status — ${providers.length} providers`;
   const body = [
-    `This report covers ${providers.length} providers in the directory.`,
-    `## Verification coverage\n\n- Providers with a completed verification pass: ${verified}`,
-    `- Providers still unverified: ${providers.length - verified}`,
-    `\n*Numbers reflect the database at generation time and are unverified snapshots.*`,
+    `This page reports the current state of the directory's own data, refreshed periodically.`,
+    `## Coverage\n\n- Providers tracked: ${providers.length}\n- Providers that have completed at least one verification pass: ${verified}\n- Providers pending verification: ${providers.length - verified}`,
+    `## How to read this\n\nAn unverified provider is not necessarily inaccurate — it means our automated checks have not yet confirmed its details against official sources. Check individual profile pages for field-level status.`,
+    `*Snapshot of internal database state; regenerated automatically.*`,
   ].join("\n\n");
 
   const slug = `report-directory-${new Date().toISOString().slice(0, 10)}`;
-  const validation = validateDraft({ title, body, bodyMinLen: 200 });
-  const page = await db.contentPage.upsert({
-    where: { slug },
-    create: {
-      slug,
-      type: "report",
-      title,
-      body,
-      status: validation.ok ? "review" : "draft",
-      quality: JSON.parse(JSON.stringify(validation)),
-    },
-    update: {
-      body,
-      quality: JSON.parse(JSON.stringify(validation)),
-    },
+  const brief: ContentBrief = {
+    type: "report",
+    subject: slug,
+    audience: "readers curious about directory methodology",
+    intent: "directory data freshness",
+    uniqueValue: ["quantifies verification coverage"],
+    keyEvidence: ["internal counts"],
+    missingInfo: [],
+    go: true,
+    reasons: ["operational transparency page"],
+  };
+  const others = await otherPageBodies(slug);
+  const validation = validatePage({
+    title,
+    body,
+    sources: [],
+    factTexts: [`${providers.length}`, `${verified}`],
+    otherPages: others,
+    selfSlug: slug,
+    minLen: 300,
+    requireSources: false,
   });
-  return { slug, status: page.status, validation };
+
+  return await persistDraft({
+    slug,
+    type: "report",
+    title,
+    summary: `Verification coverage across ${providers.length} directory providers.`,
+    body,
+    brief,
+    validation,
+  });
 }

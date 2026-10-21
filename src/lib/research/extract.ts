@@ -119,7 +119,14 @@ export function affiliateLinks(page: ExtractedPage): string[] {
   return [...out];
 }
 
-/** Crude fee extraction: finds "x.y% + $c" style published pricing. */
+/**
+ * Crude fee extraction: finds "x.y% + $c" style published pricing.
+ * Requires fee/currency context in the surrounding text — bare percentages
+ * ("45% win rate", "99.9% uptime") are not fee signals and are discarded.
+ */
+const FEE_CONTEXT =
+  /[$€£₹¢]|\b(?:USD|EUR|GBP|INR|CAD|AUD|NZD|SGD|JPY|cents?)\b|fees?|charges?|commission|per (?:transaction|txn|charge)|discount rate|interchange/i;
+
 export function findFeeMentions(text: string): string[] {
   const re =
     /(\d+(?:\.\d+)?)\s*%\s*(?:\+\s*[A-Z]{0,3}\$?\s?\d+(?:\.\d+)?\s*(?:¢|cents?|[A-Z]{3})?)?/g;
@@ -128,6 +135,7 @@ export function findFeeMentions(text: string): string[] {
   while ((m = re.exec(text)) && matches.size < 10) {
     const idx = m.index;
     const ctx = text.slice(Math.max(0, idx - 60), idx + 80).trim();
+    if (!FEE_CONTEXT.test(ctx)) continue;
     matches.add(ctx);
   }
   return [...matches];
