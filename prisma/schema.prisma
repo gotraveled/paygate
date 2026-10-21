@@ -1,0 +1,351 @@
+// PayGate database schema.
+// Source of truth for ALL environments. Local development uses SQLite.
+// For PostgreSQL (Supabase) run `npm run db:push:pg`, which generates a
+// Postgres copy of this file (provider swap only) and pushes it.
+// Keep the model section free of Postgres/SQLite-specific types
+// (no enums, no arrays, no Decimal) so both providers stay compatible.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ---------------------------------------------------------------------------
+// Reference data
+// ---------------------------------------------------------------------------
+
+model Country {
+  code      String  @id // ISO 3166-1 alpha-2, e.g. "US"
+  name      String
+  region    String?
+  intro     String? // curated copy shown on the country page
+  active    Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  eligibility ProviderCountryEligibility[]
+}
+
+model Industry {
+  id        String  @id @default(cuid())
+  slug      String  @unique
+  name      String
+  vertical  String  @default("payments") // future: credit_cards, insurance
+  summary   String?
+  riskLevel String  @default("standard") // standard | elevated | high
+  createdAt DateTime @default(now())
+
+  providers ProviderIndustry[]
+}
+
+// ---------------------------------------------------------------------------
+// Providers
+// ---------------------------------------------------------------------------
+
+model Provider {
+  id             String  @id @default(cuid())
+  slug           String  @unique
+  name           String
+  normalizedName String  @unique // lowercase, stripped dedup key
+  websiteUrl     String
+  domain         String // normalized hostname, used for dedup
+  logoUrl        String?
+  category       String // payment_gateway | payment_processor | merchant_account | high_risk | payfac | mor | orchestration | subscription_billing | formation | regional | other
+  vertical       String  @default("payments") // future: credit_cards, insurance
+  hqCountryCode  String?
+  summary        String?
+  suitableFor    String?
+  status         String  @default("draft") // draft | published | archived
+  sponsored      Boolean @default(false)
+
+  // Only populated after an affiliate partnership is APPROVED.
+  affiliateUrl String?
+
+  // Application / underwriting fields (free text, keep published wording).
+  registrationRequirement String?
+  ownerResidency          String?
+  paymentTypes            Json? // ["one_time","recurring","marketplace"]
+  applicationSteps        Json? // ordered list of steps
+  requiredDocs            Json? // list of required documents
+  pros                    Json? // string[]
+  cons                    Json? // string[]
+  limitations             String?
+
+  lastVerifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  countries  ProviderCountryEligibility[]
+  industries ProviderIndustry[]
+  pricing    PricingTerm[]
+  reserves   ReservePayoutTerm[]
+  features   ProviderFeature[]
+  evidence   Evidence[]
+  changes    ChangeEvent[]
+  affiliates AffiliateProgram[]
+  pages      ContentPage[]
+  sources    Source[]
+
+  @@index([status, vertical, category])
+  @@index([domain])
+}
+
+model ProviderCountryEligibility {
+  id          String  @id @default(cuid())
+  providerId  String
+  countryCode String
+  scope       String // merchant_apply | customer_pay | settlement
+  status      String // supported | not_supported | conditional | undisclosed | conflicting | unverified
+  notes       String?
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  country  Country  @relation(fields: [countryCode], references: [code])
+
+  @@unique([providerId, countryCode, scope])
+  @@index([countryCode, scope, status])
+}
+
+model ProviderIndustry {
+  id         String @id @default(cuid())
+  providerId String
+  industryId String
+  status     String // supported | restricted | conditional | prohibited | unverified
+  notes      String?
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  industry Industry @relation(fields: [industryId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, industryId])
+  @@index([industryId, status])
+}
+
+model PricingTerm {
+  id            String    @id @default(cuid())
+  providerId    String
+  kind          String // transaction_pct | transaction_fixed | monthly | setup | chargeback | refund | payout | minimum_monthly | other
+  label         String
+  amountMin     Float?
+  amountMax     Float?
+  currency      String?
+  unit          String? // percent | fixed | per_month | per_transaction
+  region        String? // e.g. "US", "domestic", "international"
+  conditions    String? // published conditions verbatim-ish
+  effectiveDate DateTime?
+  evidenceId    String?
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, kind])
+}
+
+model ReservePayoutTerm {
+  id         String  @id @default(cuid())
+  providerId String
+  kind       String // rolling_reserve | payout_schedule | settlement_time | min_payout | other
+  summary    String
+  percent    Float?
+  daysMin    Int?
+  daysMax    Int?
+  conditions String?
+  evidenceId String?
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, kind])
+}
+
+model ProviderFeature {
+  id         String @id @default(cuid())
+  providerId String
+  key        String // api | plugins | hosted_checkout | recurring_billing | invoicing | pos | marketplace_tools | sdk | webhooks | virtual_terminal
+  status     String // supported | not_supported | conditional | undisclosed | unverified
+  notes      String?
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, key])
+}
+
+// ---------------------------------------------------------------------------
+// Evidence & sources
+// ---------------------------------------------------------------------------
+
+model Source {
+  id            String    @id @default(cuid())
+  url           String    @unique
+  host          String
+  title         String?
+  sourceType    String    @default("official") // official | third_party
+  providerId    String? // owning provider when the source is its site
+  lastFetchedAt DateTime?
+  contentHash   String?
+  httpStatus    Int?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  provider Provider?  @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  evidence Evidence[]
+
+  @@index([providerId])
+  @@index([host])
+}
+
+model Evidence {
+  id               String   @id @default(cuid())
+  providerId       String?
+  field            String // machine field, e.g. "pricing.domestic_pct"
+  claim            String // human-readable assertion
+  value            Json?
+  status           String   @default("unverified") // supported | not_supported | conditional | undisclosed | conflicting | unverified | outdated
+  extractionMethod String   @default("manual") // manual | pattern | seed | third_party
+  confidence       Float    @default(0)
+  sourceId         String?
+  retrievedAt      DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  provider Provider? @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  source   Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([providerId, field])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Affiliate programs
+// ---------------------------------------------------------------------------
+
+model AffiliateProgram {
+  id              String    @id @default(cuid())
+  providerId      String?
+  companyName     String
+  programName     String?
+  programUrl      String?
+  applyUrl        String?
+  eligibility     String?
+  countries       Json?
+  commission      String?
+  tracking        String?
+  terms           String?
+  status          String    @default("discovered") // discovered | researched | ready_to_apply | applied | approved | rejected | unavailable
+  needsUserAction Boolean   @default(false)
+  lastVerifiedAt  DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  provider Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+model ReferralClick {
+  id        String   @id @default(cuid())
+  slug      String // provider slug or program id
+  target    String
+  referer   String?
+  createdAt DateTime @default(now())
+
+  @@index([slug])
+}
+
+// ---------------------------------------------------------------------------
+// Research pipeline
+// ---------------------------------------------------------------------------
+
+model ResearchJob {
+  id          String    @id @default(cuid())
+  type        String // discover | research | verify | content | affiliates | report
+  status      String    @default("pending") // pending | running | success | failed
+  payload     Json?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  error       String?
+  scheduledAt DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  logs JobLog[]
+
+  @@index([type, status])
+}
+
+model JobLog {
+  id        String   @id @default(cuid())
+  jobId     String?
+  level     String   @default("info") // info | warn | error
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  job ResearchJob? @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([createdAt])
+}
+
+model ChangeEvent {
+  id         String    @id @default(cuid())
+  providerId String?
+  field      String
+  oldValue   Json?
+  newValue   Json?
+  severity   String    @default("low") // low | significant
+  status     String    @default("auto_applied") // auto_applied | needs_review | applied | dismissed
+  notes      String?
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
+
+  provider Provider? @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+model ReviewItem {
+  id         String    @id @default(cuid())
+  entity     String // provider | evidence | change_event | affiliate_program | content_page
+  entityId   String
+  reason     String
+  status     String    @default("open") // open | resolved | dismissed
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Published content
+// ---------------------------------------------------------------------------
+
+model ContentPage {
+  id           String    @id @default(cuid())
+  slug         String    @unique
+  type         String // guide | comparison | report | article
+  vertical     String    @default("payments")
+  title        String
+  summary      String?
+  body         String // markdown
+  status       String    @default("draft") // draft | review | published | archived
+  providerId   String?
+  countryCode  String?
+  industrySlug String?
+  quality      Json? // validation output (checks passed/failed)
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  provider Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+
+  @@index([type, status])
+}
+
+model Report {
+  id        String   @id @default(cuid())
+  date      String   @unique // YYYY-MM-DD
+  summary   Json
+  body      String // markdown report
+  createdAt DateTime @default(now())
+}
