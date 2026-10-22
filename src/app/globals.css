@@ -1,8 +1,20 @@
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------ */
+/* PayGate design tokens — premium fintech research platform            */
+/*                                                                     */
+/* Palette intent:                                                     */
+/*   ink   — deep midnight navy: brand surfaces, dark sections         */
+/*   brand — electric blue: primary interactions, links, focus         */
+/*   mint  — teal/green: verified data, positive signals               */
+/*   warm  — amber: conditional or warning information                 */
+/*   zinc  — muted neutrals: unknown / unverified                      */
+/* Never render unverified data with verified-signal colors.           */
+/* ------------------------------------------------------------------ */
+
 :root {
-  --background: #fafafa;
-  --foreground: #18181b;
+  --background: #f6f7f9;
+  --foreground: #101623;
 }
 
 @theme inline {
@@ -12,7 +24,175 @@
   --font-mono: var(--font-geist-mono);
 }
 
+@theme {
+  /* Midnight navy — brand surfaces */
+  --color-ink-50: #f0f4fa;
+  --color-ink-100: #dce6f2;
+  --color-ink-200: #b7c9e0;
+  --color-ink-300: #89a3c7;
+  --color-ink-400: #5c7ca7;
+  --color-ink-500: #3c5f8a;
+  --color-ink-600: #2a4a70;
+  --color-ink-700: #1d3557;
+  --color-ink-800: #152746;
+  --color-ink-900: #0f1d36;
+  --color-ink-950: #0a1527;
+
+  /* Electric blue — primary interaction color */
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dce9fe;
+  --color-brand-200: #c0d7fd;
+  --color-brand-300: #94bcfb;
+  --color-brand-400: #6397f7;
+  --color-brand-500: #3d72f0;
+  --color-brand-600: #2658e3;
+  --color-brand-700: #1e44c8;
+  --color-brand-800: #1e39a0;
+  --color-brand-900: #1e337e;
+  --color-brand-950: #17224d;
+
+  /* Mint — verified / positive signals */
+  --color-mint-50: #effcf8;
+  --color-mint-100: #c9f4e6;
+  --color-mint-200: #93e8d0;
+  --color-mint-300: #57d4b6;
+  --color-mint-400: #26b89a;
+  --color-mint-500: #0f9c81;
+  --color-mint-600: #077d69;
+  --color-mint-700: #086456;
+  --color-mint-800: #0a4f45;
+  --color-mint-900: #0c413a;
+
+  /* Warm amber — conditional / warnings */
+  --color-warm-50: #fffaeb;
+  --color-warm-100: #fdf0c8;
+  --color-warm-200: #fadf8b;
+  --color-warm-300: #f5c84e;
+  --color-warm-400: #eeb024;
+  --color-warm-500: #d18e0d;
+  --color-warm-600: #b56d09;
+  --color-warm-700: #8f4f0b;
+  --color-warm-800: #773f10;
+  --color-warm-900: #663511;
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+
 body {
   background: var(--background);
   color: var(--foreground);
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-brand-600);
+  color: #fff;
+}
+
+/* Focus ring — consistent across all interactive elements */
+:where(a, button, input, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion tokens + keyframes                                           */
+/* Keep animation decorative and CSS-only; honor reduced-motion.       */
+/* ------------------------------------------------------------------ */
+
+@keyframes pg-drift {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(6px, -8px, 0); }
+}
+
+@keyframes pg-pulse-dot {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+@keyframes pg-flow {
+  to { stroke-dashoffset: -28; }
+}
+
+@keyframes pg-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pg-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Section entrance — applied sparingly to blocks, never inside prose */
+.pg-rise {
+  animation: pg-rise 0.55s cubic-bezier(0.22, 0.9, 0.32, 1) both;
+}
+.pg-rise-d1 { animation-delay: 0.08s; }
+.pg-rise-d2 { animation-delay: 0.16s; }
+.pg-rise-d3 { animation-delay: 0.24s; }
+.pg-fade { animation: pg-fade 0.6s ease-out both; }
+
+/* Hero network illustration helpers */
+.pg-drift { animation: pg-drift 9s ease-in-out infinite; }
+.pg-drift-slow { animation: pg-drift 14s ease-in-out infinite; }
+.pg-pulse { animation: pg-pulse-dot 3.2s ease-in-out infinite; }
+.pg-flow { stroke-dasharray: 4 7; animation: pg-flow 1.6s linear infinite; }
+
+/* Card elevation on hover — restrained */
+.pg-lift {
+  transition: transform 0.18s ease, box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+.pg-lift:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 2px rgb(10 21 39 / 0.06),
+    0 10px 28px -10px rgb(10 21 39 / 0.18);
+}
+
+/* Link underline sweep for nav */
+.pg-navlink {
+  position: relative;
+}
+.pg-navlink::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 100%;
+  bottom: -2px;
+  height: 2px;
+  background: var(--color-brand-600);
+  transition: right 0.2s ease;
+}
+.pg-navlink:hover::after,
+.pg-navlink[aria-current="page"]::after {
+  right: 0;
+}
+
+/* Subtle dotted grid texture for dark hero surfaces */
+.pg-grid-dark {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgb(137 163 199 / 0.16) 1px, transparent 0);
+  background-size: 26px 26px;
+}
+.pg-grid-light {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgb(15 29 54 / 0.05) 1px, transparent 0);
+  background-size: 26px 26px;
+}
+
+/* Reduced motion — kill decorative movement everywhere */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

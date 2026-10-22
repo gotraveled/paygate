@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { StatusBadge } from "@/components/status-badge";
+import { ProviderMark } from "@/components/provider-mark";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { asStringArray } from "@/lib/utils";
 import type { ProviderCardData } from "@/lib/queries";
@@ -11,45 +10,71 @@ export function ProviderCard({ provider }: { provider: ProviderCardData }) {
     (c) => c.scope === "merchant_apply" && c.status === "supported"
   );
   const headFee = provider.pricing.find((p) => p.kind === "transaction_pct");
+  const verified = provider.lastVerifiedAt != null;
 
   return (
-    <Card className="flex h-full flex-col">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <CardTitle>
-            <Link
-              href={`/providers/${provider.slug}`}
-              className="hover:text-sky-700"
-            >
-              {provider.name}
-            </Link>
-          </CardTitle>
-          {provider.sponsored && <Badge variant="info">Sponsored</Badge>}
+    <article className="pg-lift group relative flex h-full flex-col rounded-xl border border-zinc-200 bg-white">
+      {/* Click target covers the card; footer has its own link below it via z-index */}
+      <Link
+        href={`/providers/${provider.slug}`}
+        className="absolute inset-0 rounded-xl"
+        aria-label={`${provider.name} profile`}
+      />
+      <div className="flex items-start gap-3 p-5 pb-0">
+        <ProviderMark name={provider.name} slug={provider.slug} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[15px] font-semibold text-ink-950 group-hover:text-brand-700">
+            {provider.name}
+          </h3>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <Badge variant="secondary">
+              {CATEGORY_LABELS[provider.category] ?? provider.category}
+            </Badge>
+            {provider.sponsored && <Badge variant="info">Sponsored</Badge>}
+          </div>
         </div>
-        <div className="mt-1 flex flex-wrap gap-1">
-          <Badge variant="secondary">
-            {CATEGORY_LABELS[provider.category] ?? provider.category}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="flex-1 space-y-2 text-sm text-zinc-600">
-        {provider.summary && (
-          <p className="line-clamp-3">{provider.summary}</p>
+        {/* Verified = mint, unverified = muted — different visual authority */}
+        {verified ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-mint-200 bg-mint-50 px-2 py-0.5 text-[11px] font-semibold text-mint-700"
+            title={`Research verified ${provider.lastVerifiedAt!.toISOString().slice(0, 10)}`}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3" aria-hidden="true">
+              <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 14.6-3.5-3.5 1.4-1.4 2.1 2.1 4.6-4.6 1.4 1.4-6 6Z" />
+            </svg>
+            Verified
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+            Unverified
+          </span>
         )}
-        <dl className="space-y-1 text-xs">
+      </div>
+
+      <div className="flex-1 space-y-3 px-5 py-4">
+        {provider.summary && (
+          <p className="line-clamp-2 text-[13.5px] leading-5 text-zinc-600">
+            {provider.summary}
+          </p>
+        )}
+        <dl className="space-y-1.5 text-xs">
           <div className="flex gap-2">
-            <dt className="w-28 shrink-0 text-zinc-500">Apply from</dt>
+            <dt className="w-24 shrink-0 font-medium text-zinc-400">
+              Apply from
+            </dt>
             <dd className="text-zinc-800">
               {applyCountries.length > 0
                 ? applyCountries
-                    .slice(0, 6)
+                    .slice(0, 5)
                     .map((c) => c.country.name)
-                    .join(", ") + (applyCountries.length > 6 ? "…" : "")
+                    .join(", ") + (applyCountries.length > 5 ? "…" : "")
                 : "Undisclosed"}
             </dd>
           </div>
           <div className="flex gap-2">
-            <dt className="w-28 shrink-0 text-zinc-500">Headline fee</dt>
+            <dt className="w-24 shrink-0 font-medium text-zinc-400">
+              Headline fee
+            </dt>
             <dd className="text-zinc-800">
               {headFee
                 ? `${headFee.amountMin ?? "?"}%${headFee.conditions ? ` (${headFee.conditions})` : ""}`
@@ -57,28 +82,30 @@ export function ProviderCard({ provider }: { provider: ProviderCardData }) {
             </dd>
           </div>
           <div className="flex gap-2">
-            <dt className="w-28 shrink-0 text-zinc-500">Payment types</dt>
+            <dt className="w-24 shrink-0 font-medium text-zinc-400">
+              Payments
+            </dt>
             <dd className="text-zinc-800">
-              {asStringArray(provider.paymentTypes).join(", ") || "Undisclosed"}
+              {asStringArray(provider.paymentTypes).slice(0, 3).join(", ") ||
+                "Undisclosed"}
             </dd>
           </div>
         </dl>
-      </CardContent>
-      <CardFooter>
+      </div>
+
+      <div className="relative z-10 flex items-center justify-between border-t border-zinc-100 px-5 py-3">
         <Link
           href={`/providers/${provider.slug}`}
-          className="text-sm font-medium text-sky-700 hover:underline"
+          className="text-[13px] font-semibold text-brand-700 transition-colors hover:text-brand-800"
         >
-          Full profile
+          Full profile <span aria-hidden="true">→</span>
         </Link>
-        {provider.lastVerifiedAt ? (
-          <span className="ml-auto text-xs text-zinc-400">
-            Verified {provider.lastVerifiedAt.toISOString().slice(0, 10)}
+        {verified && (
+          <span className="text-[11px] text-zinc-400">
+            Verified {provider.lastVerifiedAt!.toISOString().slice(0, 10)}
           </span>
-        ) : (
-          <StatusBadge status="unverified" />
         )}
-      </CardFooter>
-    </Card>
+      </div>
+    </article>
   );
 }

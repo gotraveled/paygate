@@ -81,19 +81,20 @@ async function Body({ params }: { params: Params }) {
           ),
         }}
       />
-      <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
+      <h1 className="text-[28px] font-bold tracking-tight text-ink-950">
         Payment providers for {country.name}
       </h1>
-      <p className="mt-2 max-w-3xl text-zinc-600">
+      <p className="mt-2 max-w-3xl text-[15px] leading-6 text-zinc-600">
         {country.intro ??
           `Providers below are grouped by whether official documentation confirms merchant applications from ${country.name}. Eligibility is never a guarantee of account approval — underwriting decisions rest with each provider.`}
       </p>
 
-      <h2 className="mt-10 text-xl font-semibold text-zinc-900">
+      <h2 className="mt-10 flex items-center gap-2.5 text-lg font-semibold text-ink-950">
+        <span className="h-2 w-2 rounded-full bg-mint-500" aria-hidden="true" />
         Confirmed to accept {country.name} merchants
       </h2>
       {verified.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">
+        <p className="mt-3 rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-500">
           No providers are verified for {country.name} yet — our research
           pipeline is still working through the directory.
         </p>
@@ -107,7 +108,8 @@ async function Body({ params }: { params: Params }) {
 
       {conditional.length > 0 && (
         <>
-          <h2 className="mt-10 text-xl font-semibold text-zinc-900">
+          <h2 className="mt-10 flex items-center gap-2.5 text-lg font-semibold text-ink-950">
+            <span className="h-2 w-2 rounded-full bg-warm-400" aria-hidden="true" />
             Conditional or unverified for {country.name}
           </h2>
           <ul className="mt-4 space-y-2">
@@ -122,7 +124,7 @@ async function Body({ params }: { params: Params }) {
                 >
                   <Link
                     href={`/providers/${p.slug}`}
-                    className="font-medium text-zinc-900 hover:underline"
+                    className="text-sm font-medium text-ink-950 transition-colors hover:text-brand-700"
                   >
                     {p.name}
                   </Link>

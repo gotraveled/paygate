@@ -125,49 +125,70 @@ async function Body({ params }: { params: Params }) {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
 
-      <nav aria-label="Breadcrumb" className="text-xs text-zinc-500">
-        <Link href="/" className="hover:underline">Home</Link>
-        {" / "}
-        <Link href="/guides" className="hover:underline">Guides</Link>
-        {" / "}
-        <span className="text-zinc-700">{page.title}</span>
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-zinc-400">
+        <Link href="/" className="transition-colors hover:text-brand-700">Home</Link>
+        <span aria-hidden="true">/</span>
+        <Link href="/guides" className="transition-colors hover:text-brand-700">Guides</Link>
+        <span aria-hidden="true">/</span>
+        <span className="text-zinc-600 line-clamp-1">{page.title}</span>
       </nav>
 
-      <div className="mt-4 flex items-start gap-6">
+      <div className="mt-5 flex items-start gap-8">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-blue-700">{page.type}</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">{page.title}</h1>
+          <p className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-brand-700">
+            {page.type}
+          </p>
+          <h1 className="mt-3 text-[32px] font-bold leading-[1.15] tracking-tight text-ink-950">
+            {page.title}
+          </h1>
           {page.summary && (
-            <p className="mt-3 text-[15px] leading-6 text-zinc-600">{page.summary}</p>
+            <p className="mt-3 text-[15.5px] leading-7 text-zinc-600">{page.summary}</p>
           )}
         </div>
-        <div className="hidden w-36 shrink-0 overflow-hidden rounded-xl sm:block sm:h-36">
+        <div className="hidden w-40 shrink-0 overflow-hidden rounded-xl shadow-sm sm:block sm:h-40">
           <HeroArt seed={slug} />
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 border-y border-zinc-200 py-2.5 text-xs text-zinc-500">
+      <div className="mt-5 flex flex-wrap gap-x-5 gap-y-1.5 border-y border-zinc-200 bg-white py-3 text-xs text-zinc-500">
         {page.publishedAt && <span>Published {formatDate(page.publishedAt)}</span>}
-        {page.reviewedAt && <span>Reviewed {formatDate(page.reviewedAt)}</span>}
-        {page.provider && (
-          <span>
-            Covers <Link href={`/providers/${page.provider.slug}`} className="text-blue-700 hover:underline">{page.provider.name}</Link>
+        {page.reviewedAt && (
+          <span className="inline-flex items-center gap-1">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3 text-mint-600" aria-hidden="true">
+              <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1.2 14.6-3.5-3.5 1.4-1.4 2.1 2.1 4.6-4.6 1.4 1.4-6 6Z" />
+            </svg>
+            Reviewed {formatDate(page.reviewedAt)}
           </span>
         )}
-        <Link href="/editorial-methodology" className="ml-auto text-blue-700 hover:underline">
+        {page.provider && (
+          <span>
+            Covers{" "}
+            <Link href={`/providers/${page.provider.slug}`} className="font-medium text-brand-700 transition-colors hover:text-brand-800">
+              {page.provider.name}
+            </Link>
+          </span>
+        )}
+        <Link href="/editorial-methodology" className="ml-auto font-medium text-brand-700 transition-colors hover:text-brand-800">
           Editorial methodology
         </Link>
       </div>
 
       <div className="mt-8 lg:flex lg:gap-10">
         {toc.length >= 3 && (
-          <aside className="mb-6 lg:order-2 lg:mb-0 lg:w-56 lg:shrink-0">
-            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 lg:sticky lg:top-6">
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">On this page</p>
-              <ul className="mt-2 space-y-1.5 text-[13px]">
+          <aside className="mb-8 lg:order-2 lg:mb-0 lg:w-60 lg:shrink-0">
+            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm lg:sticky lg:top-20">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                On this page
+              </p>
+              <ul className="mt-3 space-y-2 text-[13px]">
                 {toc.map((t) => (
-                  <li key={t.id}>
-                    <a href={`#${t.id}`} className="text-zinc-600 hover:text-blue-700">{t.label}</a>
+                  <li key={t.id} className="border-l-2 border-zinc-200 pl-3">
+                    <a
+                      href={`#${t.id}`}
+                      className="text-zinc-600 transition-colors hover:border-brand-500 hover:text-brand-700"
+                    >
+                      {t.label}
+                    </a>
                   </li>
                 ))}
               </ul>
@@ -179,18 +200,26 @@ async function Body({ params }: { params: Params }) {
         </div>
       </div>
 
-      <footer className="mt-10 space-y-2 border-t border-zinc-200 pt-4 text-xs text-zinc-500">
-        <p>
-          This article is generated from our provider records and checked
-          against official sources; fields we could not verify are labeled as
-          such rather than filled in. It is produced under our{" "}
-          <Link href="/editorial-methodology" className="underline">editorial methodology</Link>.
-        </p>
-        <p>
-          Some pages may include affiliate relationships; if so they are
-          disclosed in the article body. Recommendations are based on
-          eligibility fit, not commissions.
-        </p>
+      <footer className="mt-12 rounded-xl border border-ink-100 bg-ink-50/60 p-5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+          About this article
+        </h2>
+        <div className="mt-2.5 space-y-2 text-xs leading-5 text-zinc-600">
+          <p>
+            This article is generated from our provider records and checked
+            against official sources; fields we could not verify are labeled
+            as such rather than filled in. It is produced under our{" "}
+            <Link href="/editorial-methodology" className="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800">
+              editorial methodology
+            </Link>
+            .
+          </p>
+          <p>
+            Some pages may include affiliate relationships; if so they are
+            disclosed in the article body. Recommendations are based on
+            eligibility fit, not commissions.
+          </p>
+        </div>
       </footer>
     </article>
   );

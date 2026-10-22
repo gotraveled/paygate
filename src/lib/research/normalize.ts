@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { asStringArray } from "@/lib/utils";
+import { isEvidencePath } from "./research";
 import {
   CATEGORY_LABELS,
   INDUSTRY_STATUS_LABELS,
@@ -24,6 +25,8 @@ export interface CountryFact {
   name: string;
   status: string;
   scope: string;
+  /** true when the claim row links to an evidence record — false = seed value */
+  evidenceLinked?: boolean;
 }
 
 export interface IndustryFact {
@@ -41,6 +44,10 @@ export interface PricingFact {
   region?: string;
   conditions?: string;
   disclosed: boolean; // false when no public amount exists
+  /** verification status of the underlying PricingTerm row */
+  status?: string;
+  /** true when the row links to an evidence record — false = seed value */
+  evidenceLinked?: boolean;
 }
 
 export interface ReserveFact {
@@ -152,6 +159,7 @@ export async function normalizeProvider(
         name: countryFactToName(c),
         status: c.status,
         scope: c.scope,
+        evidenceLinked: c.evidenceId != null,
       }));
 
   const merchant = byScope("merchant_apply");
@@ -194,6 +202,8 @@ export async function normalizeProvider(
       display: amount ? `${amount}${per}` : "Not publicly disclosed",
       region,
       conditions: t.conditions ?? undefined,
+      status: t.status,
+      evidenceLinked: t.evidenceId != null,
       disclosed: hasAmount,
     };
   });
@@ -207,6 +217,9 @@ export async function normalizeProvider(
     conditions: r.conditions ?? undefined,
   }));
 
+  // References shown to readers should point at authoritative pages — the
+  // same page-type gate used during research excludes customer stories,
+  // blogs, and partner directories from the citation list.
   const sources: SourceRef[] = [
     ...new Map(
       [
@@ -230,7 +243,7 @@ export async function normalizeProvider(
           })),
       ].map((s) => [s.url, s])
     ).values(),
-  ];
+  ].filter((s) => isEvidencePath(s.url));
 
   const ev = p.evidence;
   const fieldsWithEvidence = [...new Set(ev.map((e) => e.field))];

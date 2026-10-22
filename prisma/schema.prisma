@@ -103,6 +103,8 @@ model ProviderCountryEligibility {
   evidenceId  String?
   statusReason String? // why this status (e.g. "single official list; pending corroboration")
   confidence   Float? // 0-1 extraction+match quality, not proof of correctness
+  verifiedBy   String? // who last manually verified this claim (e.g. "local-audit")
+  verifiedAt   DateTime? // when it was manually verified
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   country  Country  @relation(fields: [countryCode], references: [code])
@@ -118,6 +120,8 @@ model ProviderIndustry {
   status     String // supported | restricted | conditional | prohibited | unverified
   notes      String?
   evidenceId String?
+  verifiedBy   String?
+  verifiedAt   DateTime?
   statusReason String?
   confidence   Float?
 

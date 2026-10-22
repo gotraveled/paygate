@@ -22,6 +22,46 @@ import type { JobContext } from "./runner";
 
 const MAX_PAGES_PER_PROVIDER = 12;
 
+/**
+ * Page types that never produce eligibility/policy/pricing evidence.
+ * Marketing/editorial content is not an authoritative record of what a
+ * provider accepts — blog posts and partner directories cite other parties.
+ * Legal pages are kept: acceptable-use and restriction policies live there.
+ * Affiliate discovery still runs on every fetched page.
+ */
+export const NON_EVIDENCE_PATH =
+  /(?:^|\/)(blog|news|newsroom|press|events|stories|guides?|learn|academy|partners?\/(?:directory|portal)|customers?|case-stud(?:y|ies)|community|careers?|jobs?|support|help|solutions?)(?:\/|$)/i;
+
+/** Editorial/community subdomains are not provider documentation. `docs.` stays. */
+const NON_EVIDENCE_HOST = /^(help|support|community|blog|news|status|developers\.community)\./i;
+
+export function isEvidencePath(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (NON_EVIDENCE_HOST.test(u.hostname)) return false;
+    return !NON_EVIDENCE_PATH.test(u.pathname);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Headings that genuinely describe payout/settlement/reserve terms.
+ * Bare `withdraw` matched "Withdrawal of Consent for Electronic
+ * Communications"; bare `reserve` matched "we reserve the right". Require
+ * settlement vocabulary that cannot appear in unrelated legal boilerplate.
+ */
+export const PAYOUT_HEADING =
+  /payout|pay ?out|settle|rolling reserve|reserve (balance|requirement|fund)|disburse|remittance|funds? (transfer|hold)|when (do|will) i get paid|getting paid/i;
+
+/** Headings that genuinely describe business/acceptable-use policy. */
+export const POLICY_HEADING =
+  /prohibit|restrict|accept(ed|able) (use|business)|banned|not (supported|permitted)|ineligible|business categor|high.?risk|acceptable use/i;
+
+/** Legal-structure headings that are never policy content even if they match. */
+export const GENERIC_HEADING =
+  /definitions?|interpretation|overview|introduction|consent|termination|liabilit|indemnif|governing|dispute|arbitration|force majeure|assignment|severability|waiver|notices?|ownership|editing|deleting|modification|dormant/i;
+
 export async function runResearch(ctx: JobContext) {
   const providerId = ctx.payload.providerId as string | undefined;
   if (!providerId) throw new Error("providerId required");
@@ -67,10 +107,16 @@ export async function runResearch(ctx: JobContext) {
       providerId: provider.id,
     });
 
+    // Blog, partner-directory, help and community pages cite other parties'
+      // terms and list countries incidentally — they are not authoritative
+      // provider records and never produce evidence. Affiliate discovery
+      // still runs on every fetched page.
+    const evidencePage = isEvidencePath(res.finalUrl || clean);
+
     // ---- Candidate claims -------------------------------------------------
 
     // Pricing mentions
-    const pricingSections = sectionsFor(page, "pricing");
+    const pricingSections = evidencePage ? sectionsFor(page, "pricing") : [];
     for (const s of pricingSections) {
       const fees = findFeeMentions(s.text);
       for (const fee of fees.slice(0, 4)) {
@@ -97,13 +143,18 @@ export async function runResearch(ctx: JobContext) {
     // Sections catch heading-labeled lists; the full-text scan catches
     // list-style pages (e.g. /global) whose list sits under a generic heading.
     const pageCodes = new Set<string>();
-    const countrySections = sectionsFor(page, "countries");
-    for (const s of countrySections) {
-      for (const c of findCountryMentions(s.text, countryNameMap))
-        pageCodes.add(c);
+    let allCodes: string[] = [];
+    if (evidencePage) {
+      const countrySections = sectionsFor(page, "countries");
+      for (const s of countrySections) {
+        const codes = findCountryMentions(s.text, countryNameMap);
+        // A lone country name in a section is incidental (e.g. a licenses
+        // page naming one jurisdiction); a list needs at least two.
+        if (codes.length >= 2) for (const c of codes) pageCodes.add(c);
+      }
+      allCodes = findCountryMentions(page.text, countryNameMap);
+      if (allCodes.length >= 5) for (const c of allCodes) pageCodes.add(c);
     }
-    const allCodes = findCountryMentions(page.text, countryNameMap);
-    if (allCodes.length >= 5) for (const c of allCodes) pageCodes.add(c);
     const countries = [...pageCodes];
     if (countries.length > 0) {
       await recordEvidence({
@@ -123,12 +174,14 @@ export async function runResearch(ctx: JobContext) {
     }
 
     // Prohibited business signals — only sections whose HEADING identifies a
-    // policy/prohibited topic count. A generic section ("Resources") that
-    // happens to mention "restrict" in its text is not policy evidence.
-    const POLICY_HEADING = /prohibit|restrict|accept(ed|able) (use|business)|banned|not (supported|permitted)|ineligible|business categor|high.?risk/i;
-    const prohibitedSections = sectionsFor(page, "prohibited").filter((s) =>
-      POLICY_HEADING.test(s.heading)
-    );
+    // policy/prohibited topic count, and only on evidence-worthy page types.
+    // A generic section ("Resources") that happens to mention "restrict" in
+    // its text is not policy evidence; neither is a legal boilerplate heading.
+    const prohibitedSections = evidencePage
+      ? sectionsFor(page, "prohibited").filter(
+          (s) => POLICY_HEADING.test(s.heading) && !GENERIC_HEADING.test(s.heading)
+        )
+      : [];
     for (const s of prohibitedSections.slice(0, 2)) {
       await recordEvidence({
         providerId: provider.id,
@@ -143,11 +196,12 @@ export async function runResearch(ctx: JobContext) {
       evidenceCreated++;
     }
 
-    // Reserve/payout signals — same heading requirement.
-    const PAYOUT_HEADING = /payout|settle|withdraw|rolling reserve|reserve|when (do|will) i|getting paid/i;
-    const payoutSections = sectionsFor(page, "payouts").filter((s) =>
-      PAYOUT_HEADING.test(s.heading)
-    );
+    // Reserve/payout signals — same heading + page-type requirement.
+    const payoutSections = evidencePage
+      ? sectionsFor(page, "payouts").filter(
+          (s) => PAYOUT_HEADING.test(s.heading) && !GENERIC_HEADING.test(s.heading)
+        )
+      : [];
     for (const s of payoutSections.slice(0, 2)) {
       await recordEvidence({
         providerId: provider.id,

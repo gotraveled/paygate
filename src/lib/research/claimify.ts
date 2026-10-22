@@ -37,7 +37,13 @@ interface ProposedClaim {
 }
 
 interface ReconcileResult {
-  action: "created" | "refreshed" | "promoted" | "conflict" | "unchanged";
+  action:
+    | "created"
+    | "refreshed"
+    | "promoted"
+    | "conflict"
+    | "review_only" // evidence disagrees with a manually-verified claim — flag, don't demote
+    | "unchanged";
   review?: string;
 }
 
@@ -61,9 +67,14 @@ export function corroborationScore(evidenceCount: number): number {
  * without a database.
  */
 export function decideCountryAction(
-  existing: { status: string; evidenceId?: string | null; confidence?: number | null } | null,
+  existing: {
+    status: string;
+    evidenceId?: string | null;
+    confidence?: number | null;
+    verifiedBy?: string | null;
+  } | null,
   proposed: ProposedClaim
-): ReconcileResult["action"] | "weak_agreement" {
+): ReconcileResult["action"] {
   if (!existing) return "created";
 
   const AFFIRMATIVE = new Set(["supported", "conditional"]);
@@ -82,6 +93,10 @@ export function decideCountryAction(
   const WEAK = new Set(["unverified", "undisclosed"]);
   const STRONG = new Set(["supported", "conditional"]);
   if (WEAK.has(existing.status) && STRONG.has(proposed.status)) return "promoted";
+
+  // A manually-verified claim is never silently demoted by automation —
+  // disagreeing evidence goes to review while the verified status stands.
+  if (existing.verifiedBy) return "review_only";
 
   return "conflict";
 }
@@ -140,6 +155,15 @@ async function reconcileCountry(opts: {
       },
     });
     return { action: "promoted" };
+  }
+
+  if (action === "review_only") {
+    // Verified claim stands; the disagreement goes to review so a human can
+    // decide whether new evidence should change the status.
+    return {
+      action: "review_only",
+      review: `Evidence disagrees with verified claim (${code}/${scope}): verified "${existing!.status}" vs proposed "${proposed.status}" — ${proposed.reason}`,
+    };
   }
 
   // Genuine disagreement — flag for review, keep existing status recorded
@@ -237,6 +261,8 @@ export async function runClaimify(ctx: JobContext) {
       else if (r.action === "promoted") totals.promoted++;
       else if (r.action === "conflict") {
         totals.conflicts++;
+        if (r.review) reviews.push(r.review);
+      } else if (r.action === "review_only") {
         if (r.review) reviews.push(r.review);
       }
     }
@@ -354,9 +380,19 @@ export async function runClaimify(ctx: JobContext) {
         `Unverified payout candidate on ${provider.name}: ~${days} business days`
       );
     }
-
     // ---- Review queue -----------------------------------------------------
+    // Idempotent: an identical open review item is not created twice, so a
+    // re-run does not spam the queue with duplicates.
     for (const reason of reviews) {
+      const open = await db.reviewItem.findFirst({
+        where: {
+          entity: "provider",
+          entityId: provider.id,
+          reason,
+          status: "open",
+        },
+      });
+      if (open) continue;
       await db.reviewItem.create({
         data: { entity: "provider", entityId: provider.id, reason },
       });

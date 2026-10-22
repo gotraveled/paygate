@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/logo";
 import { SITE_NAME } from "@/lib/constants";
 
 const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
@@ -34,36 +35,56 @@ const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-zinc-200 bg-zinc-50">
-      <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:grid-cols-3">
-        {COLUMNS.map((col) => (
-          <div key={col.title}>
-            <h4 className="mb-3 text-sm font-semibold text-zinc-900">
-              {col.title}
-            </h4>
-            <ul className="space-y-2">
-              {col.links.map((l) => (
-                <li key={l.href}>
-                  <Link
-                    href={l.href}
-                    className="text-sm text-zinc-600 hover:text-zinc-900"
-                  >
-                    {l.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
+    <footer className="bg-ink-950 text-ink-200">
+      <div className="mx-auto max-w-6xl px-4 py-12">
+        <div className="grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+          <div>
+            <Logo dark />
+            <p className="mt-4 max-w-xs text-[13px] leading-6 text-ink-300">
+              Evidence-based profiles of payment providers — eligibility,
+              fees, reserves, and payout terms traced to official sources.
+            </p>
+            <Link
+              href="/editorial-methodology"
+              className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-mint-300 transition-colors hover:text-mint-200"
+            >
+              How our research works
+              <span aria-hidden="true">→</span>
+            </Link>
           </div>
-        ))}
+          {COLUMNS.map((col) => (
+            <div key={col.title}>
+              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-400">
+                {col.title}
+              </h4>
+              <ul className="space-y-2">
+                {col.links.map((l) => (
+                  <li key={l.href}>
+                    <Link
+                      href={l.href}
+                      className="text-[13px] text-ink-200 transition-colors hover:text-white"
+                    >
+                      {l.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="border-t border-zinc-200 py-4">
-        <p className="mx-auto max-w-6xl px-4 text-xs text-zinc-500">
-          {SITE_NAME} publishes independent research for informational purposes.
-          Some outbound links are affiliate links — see our{" "}
-          <Link href="/affiliate-disclosure" className="underline">
+      <div className="border-t border-white/10">
+        <p className="mx-auto max-w-6xl px-4 py-5 text-xs leading-5 text-ink-400">
+          {SITE_NAME} publishes independent research for informational purposes
+          only. Some outbound links are affiliate links — see our{" "}
+          <Link
+            href="/affiliate-disclosure"
+            className="text-ink-200 underline decoration-ink-400 underline-offset-2 hover:text-white"
+          >
             affiliate disclosure
           </Link>
-          . Information may change; always confirm terms on the provider&apos;s
+          . Eligibility statuses describe published policies, not guaranteed
+          approvals; always confirm current terms on each provider&apos;s
           official website.
         </p>
       </div>

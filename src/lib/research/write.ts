@@ -435,14 +435,21 @@ export function writeComparison(
   // Eligibility contrast — compare full status maps so conditional
   // acceptance is never flattened into "does not accept".
   const statusMap = (f: ProviderFacts) => {
-    const m = new Map<string, { status: string; name: string }>();
+    const m = new Map<
+      string,
+      { status: string; name: string; evidenceLinked?: boolean }
+    >();
     for (const c of [
       ...f.merchantApply.supported,
       ...f.merchantApply.conditional,
       ...f.merchantApply.notSupported,
       ...f.merchantApply.unverified,
     ])
-      m.set(c.code, { status: c.status, name: c.name });
+      m.set(c.code, {
+        status: c.status,
+        name: c.name,
+        evidenceLinked: c.evidenceLinked,
+      });
     return m;
   };
   const STATUS_WORDING: Record<string, string> = {
@@ -451,6 +458,17 @@ export function writeComparison(
     not_supported: "does not accept applications",
     unverified: "is unverified",
   };
+  const wording = (
+    name: string,
+    s?: { status: string; evidenceLinked?: boolean }
+  ) => {
+    if (!s) return `${name} has no record — eligibility there is unknown, not confirmed absent`;
+    const w = STATUS_WORDING[s.status] ?? `records "${s.status}"`;
+    // A claim without an evidence link is a seed value — it must not read
+    // as verified fact.
+    const tag = s.evidenceLinked ? "" : " *(unverified record)*";
+    return `${name} ${w}${tag}`;
+  };
   const aMap = statusMap(a);
   const bMap = statusMap(b);
   const eligLines: string[] = [];
@@ -458,35 +476,29 @@ export function writeComparison(
     const sa = aMap.get(code);
     const sb = bMap.get(code);
     const name = sa?.name ?? sb?.name ?? code;
-    if (sa?.status === sb?.status) continue;
-    if (sa && !sb) {
-      eligLines.push(
-        `- **${name}**: ${a.name} ${STATUS_WORDING[sa.status] ?? `records "${sa.status}"`}; ${b.name} has no record — eligibility there is unknown, not confirmed absent.`
-      );
-    } else if (!sa && sb) {
-      eligLines.push(
-        `- **${name}**: ${b.name} ${STATUS_WORDING[sb.status] ?? `records "${sb.status}"`}; ${a.name} has no record — eligibility there is unknown, not confirmed absent.`
-      );
-    } else {
-      eligLines.push(
-        `- **${name}**: ${a.name} ${STATUS_WORDING[sa!.status] ?? `records "${sa!.status}"`}; ${b.name} ${STATUS_WORDING[sb!.status] ?? `records "${sb!.status}"`}.`
-      );
-    }
+    if (sa?.status === sb?.status && sa?.evidenceLinked === sb?.evidenceLinked)
+      continue;
+    eligLines.push(`- **${name}**: ${wording(a.name, sa)}; ${wording(b.name, sb)}.`);
   }
   if (eligLines.length > 0)
     parts.push(
-      `## Merchant eligibility\n\n${eligLines.join("\n")}\n\nStatus words come from official sources or our records; "no record" means we lack evidence either way.`
+      `## Merchant eligibility\n\n${eligLines.join("\n")}\n\nStatus words come from official sources or our records; *(unverified record)* marks a directory seed value not yet checked against an official source, and "no record" means we lack evidence either way.`
     );
 
-  // Pricing contrast — only disclosed figures
+  // Pricing contrast — only disclosed figures; unverified rows are labeled
+  // so seed values never read as published facts.
   const feeLines: string[] = [];
-  for (const t of a.pricing.filter((x) => x.disclosed).slice(0, 4))
-    feeLines.push(`- ${a.name}: ${t.label} — ${t.display}${t.conditions ? ` (${t.conditions})` : ""}`);
-  for (const t of b.pricing.filter((x) => x.disclosed).slice(0, 4))
-    feeLines.push(`- ${b.name}: ${t.label} — ${t.display}${t.conditions ? ` (${t.conditions})` : ""}`);
+  for (const [f, terms] of [
+    [a.name, a.pricing],
+    [b.name, b.pricing],
+  ] as const)
+    for (const t of terms.filter((x) => x.disclosed).slice(0, 4))
+      feeLines.push(
+        `- ${f}: ${t.label} — ${t.display}${t.evidenceLinked ? "" : " *(unverified)*"}${t.conditions ? ` (${t.conditions})` : ""}`
+      );
   if (feeLines.length > 0)
     parts.push(
-      `## Published pricing\n\n${feeLines.join("\n")}\n\nHeadline percentages are not total cost: fixed per-transaction fees, FX markup, and reserve terms change the math for different ticket sizes.`
+      `## Published pricing\n\n${feeLines.join("\n")}\n\nHeadline percentages are not total cost: fixed per-transaction fees, FX markup, and reserve terms change the math for different ticket sizes. Rows marked *(unverified)* come from directory records we have not yet confirmed on the provider's pricing page.`
     );
 
   // Industry contrast
@@ -510,9 +522,17 @@ export function writeComparison(
   );
   parts.push(`## Which fits your business\n\n${fitLines.join("\n\n")}`);
 
-  const srcUrls = [...new Set([...a.sources, ...b.sources].map((s) => s.url))].slice(0, 8);
-  if (srcUrls.length > 0)
-    parts.push(`## Official references\n\n${srcUrls.map((u) => `- ${u}`).join("\n")}`);
+  const srcs = [
+    ...new Map(
+      [...a.sources, ...b.sources].map((s) => [s.url, s])
+    ).values(),
+  ].slice(0, 8);
+  if (srcs.length > 0)
+    parts.push(
+      `## Official references\n\n${srcs
+        .map((s) => `- [${s.title ?? s.host}](${s.url})`)
+        .join("\n")}`
+    );
 
   const body = assembleArticle(parts.shift()!, parts, {
     methodologyNote: `Compare the structured records: [${a.name}](/providers/${a.slug}) and [${b.name}](/providers/${b.slug}).`,
@@ -801,28 +821,38 @@ export function writeCountryRoundup(
   country: { code: string; name: string },
   providers: ProviderFacts[]
 ): DraftOutput | null {
-  const supported = providers.filter(
+  // Business-formation services are not payment processors — the title
+  // promises processors, so they get their own clearly-labeled section
+  // instead of being mixed into the accept/conditional lists.
+  const isFormation = (f: ProviderFacts) => f.category === "formation";
+  const payments = providers.filter((f) => !isFormation(f));
+  const formation = providers.filter(isFormation);
+
+  const supported = payments.filter(
     (f) => countryStatus(f, country.code) === "supported"
   );
-  const conditional = providers.filter(
+  const conditional = payments.filter(
     (f) => countryStatus(f, country.code) === "conditional"
   );
-  const excluded = providers.filter(
+  const excluded = payments.filter(
     (f) => countryStatus(f, country.code) === "not_supported"
   );
   if (supported.length === 0 && conditional.length === 0) return null;
 
   const link = (f: ProviderFacts) => `[${f.name}](/providers/${f.slug})`;
+  const feeNote = (f: ProviderFacts) =>
+    f.pricing
+      .filter((t) => t.disclosed)
+      .map((t) => `${t.label}: ${t.display}${t.evidenceLinked ? "" : " (unverified)"}`)
+      .join("; ");
 
   const sections: string[] = [];
   if (supported.length > 0) {
     sections.push(
       `## Providers that accept ${country.name}-registered businesses\n\n${supported
         .map((f) => {
-          const fees = f.pricing
-            .map((t) => `${t.label}: ${t.display}`)
-            .join("; ");
-          return `- **${link(f)}** — ${f.categoryLabel.toLowerCase()}${fees ? `; published terms include ${fees}` : ""}`;
+          const fees = feeNote(f);
+          return `- **${link(f)}** — ${f.categoryLabel.toLowerCase()}${fees ? `; recorded terms include ${fees}` : ""}`;
         })
         .join("\n")}`
     );
@@ -841,27 +871,35 @@ export function writeCountryRoundup(
     sections.push(
       `## Providers our records show as unavailable\n\n${excluded
         .map((f) => `- ${link(f)}`)
-        .join(
-          "\n"
-        )}\n\nWhere eligibility matters for a route around this — a foreign entity or a Merchant of Record — say so explicitly rather than assuming.`
+        .join("\n")}`
+    );
+  }
+  if (formation.length > 0) {
+    sections.push(
+      `## Business formation services\n\nThese are not payment processors — they form and maintain business entities (${country.name}- or foreign-owned). If a provider above requires an entity type you do not have, a formation service may be the prerequisite step.\n\n${formation
+        .map((f) => `- **${link(f)}** — ${f.summary ?? "business formation service"}`)
+        .join("\n")}`
     );
   }
   sections.push(
     `## How to choose\n\n- **If a direct fit exists** (${supported.length} provider${supported.length === 1 ? "" : "s"}), start there — apply to the one whose industry list and fee model match your business.\n- **If everything is conditional**, the deciding factor is usually entity type and underwriting tolerance, not price.\n- **Verify before signing**: a provider's presence on a supported-country page does not guarantee approval; underwriting still applies.\n\nCheck each provider's profile for the evidence-linked eligibility row before applying.`
   );
 
-  const srcUrls = [
-    ...new Set(
-      providers.flatMap((f) => f.sources.map((s) => s.url))
-    ),
+  const srcs = [
+    ...new Map(
+      providers.flatMap((f) => f.sources).map((s) => [s.url, s])
+    ).values(),
   ].slice(0, 8);
-  if (srcUrls.length > 0)
+  if (srcs.length > 0)
     sections.push(
-      `## Official references\n\n${srcUrls.map((u) => `- ${u}`).join("\n")}`
+      `## Official references\n\n${srcs
+        .map((s) => `- [${s.title ?? s.host}](${s.url})`)
+        .join("\n")}`
     );
 
+  const article = /^[aeiou]/i.test(country.name) ? "An" : "A";
   const body = assembleArticle(
-    `A ${country.name}-registered business does not have the same provider menu as a US or EU one — eligibility is per-country, and several major names exclude or conditionally accept ${country.name} merchants. This page lists what our records actually show, separated into clear accepts, conditional cases, and recorded exclusions.`,
+    `${article} ${country.name}-registered business does not have the same provider menu as a US or EU one — eligibility is per-country, and several major names exclude or conditionally accept ${country.name} merchants. This page lists what our records actually show, separated into clear accepts, conditional cases, and recorded exclusions.`,
     sections,
     {
       methodologyNote: `Browse the [${country.name} country page](/countries/${country.code.toLowerCase()}) for the underlying eligibility data.`,
@@ -911,14 +949,18 @@ export function writeForeignFoundersGuide(
     }`,
     `## What to verify before applying\n\n- Whether the provider underwrites the OWNER, the entity, or both.\n- Whether a US EIN alone is enough, or a US-resident signer is required.\n- Which industries are excluded for foreign-owned entities specifically (often stricter than the general list).\n- Payout banking: many require a US bank account in the entity's name.`,
   ];
-  const srcUrls = [
-    ...new Set(
-      [...payments, ...formation].flatMap((f) => f.sources.map((s) => s.url))
-    ),
+  const srcs = [
+    ...new Map(
+      [...payments, ...formation]
+        .flatMap((f) => f.sources)
+        .map((s) => [s.url, s])
+    ).values(),
   ].slice(0, 8);
-  if (srcUrls.length > 0)
+  if (srcs.length > 0)
     sections.push(
-      `## Official references\n\n${srcUrls.map((u) => `- ${u}`).join("\n")}`
+      `## Official references\n\n${srcs
+        .map((s) => `- [${s.title ?? s.host}](${s.url})`)
+        .join("\n")}`
     );
 
   const body = assembleArticle(

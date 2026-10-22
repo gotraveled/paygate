@@ -64,7 +64,7 @@ async function Body({ params }: { params: Params }) {
         }}
       />
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
+        <h1 className="text-[28px] font-bold tracking-tight text-ink-950">
           {industry.name}
         </h1>
         {industry.riskLevel !== "standard" && (
@@ -74,14 +74,17 @@ async function Body({ params }: { params: Params }) {
         )}
       </div>
       {industry.summary && (
-        <p className="mt-2 max-w-3xl text-zinc-600">{industry.summary}</p>
+        <p className="mt-2 max-w-3xl text-[15px] leading-6 text-zinc-600">
+          {industry.summary}
+        </p>
       )}
 
-      <h2 className="mt-10 text-xl font-semibold text-zinc-900">
+      <h2 className="mt-10 flex items-center gap-3 text-lg font-semibold text-ink-950">
+        <span className="h-4 w-1 rounded-full bg-brand-600" aria-hidden="true" />
         Providers covering this industry
       </h2>
       {providers.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">
+        <p className="mt-3 rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-500">
           No providers researched for this industry yet.
         </p>
       ) : (
@@ -91,12 +94,12 @@ async function Body({ params }: { params: Params }) {
             return (
               <div
                 key={p.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white p-4"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3.5"
               >
                 <div className="min-w-0 flex-1">
                   <Link
                     href={`/providers/${p.slug}`}
-                    className="font-medium text-zinc-900 hover:underline"
+                    className="text-[14px] font-semibold text-ink-950 transition-colors hover:text-brand-700"
                   >
                     {p.name}
                   </Link>

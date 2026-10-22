@@ -24,22 +24,29 @@ export default function ProvidersPage({
   searchParams: SearchParams;
 }) {
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
-        All Payment Providers
-      </h1>
-      <p className="mt-2 max-w-2xl text-zinc-600">
-        Every profile is built from official documentation. Where a fact is not
-        publicly disclosed or still being verified, it is labelled accordingly.
-      </p>
-      <Suspense fallback={null}>
-        <FilterBar searchParams={searchParams} />
-      </Suspense>
-      <Suspense
-        fallback={<p className="mt-8 text-sm text-zinc-500">Loading…</p>}
-      >
-        <Results searchParams={searchParams} />
-      </Suspense>
+    <main>
+      <div className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto max-w-6xl px-4 pb-7 pt-10">
+          <h1 className="text-[28px] font-bold tracking-tight text-ink-950">
+            Payment provider directory
+          </h1>
+          <p className="mt-2 max-w-2xl text-[15px] leading-6 text-zinc-600">
+            Every profile is built from official documentation. Where a fact
+            is not publicly disclosed or still being verified, it is labelled
+            accordingly.
+          </p>
+        </div>
+      </div>
+      <div className="mx-auto max-w-6xl px-4 py-7">
+        <Suspense fallback={null}>
+          <FilterBar searchParams={searchParams} />
+        </Suspense>
+        <Suspense
+          fallback={<p className="mt-8 text-sm text-zinc-500">Loading…</p>}
+        >
+          <Results searchParams={searchParams} />
+        </Suspense>
+      </div>
     </main>
   );
 }
@@ -101,14 +108,27 @@ async function Results({
           ),
         }}
       />
-      <p className="mt-6 text-sm text-zinc-500">
-        {providers.length} provider{providers.length === 1 ? "" : "s"}
-      </p>
-      {providers.length === 0 ? (
-        <p className="mt-4 rounded-lg border border-dashed border-zinc-300 p-6 text-sm text-zinc-600">
-          No providers match these filters yet. Our research pipeline expands
-          the directory continuously — try broadening your search.
+      <div className="mt-6 flex items-baseline justify-between">
+        <p className="text-sm text-zinc-500">
+          <span className="font-semibold tabular-nums text-ink-950">
+            {providers.length}
+          </span>{" "}
+          provider{providers.length === 1 ? "" : "s"}
         </p>
+        <p className="hidden text-xs text-zinc-400 sm:block">
+          Verified profiles carry a mint badge; unverified rows stay muted.
+        </p>
+      </div>
+      {providers.length === 0 ? (
+        <div className="mt-4 rounded-xl border border-dashed border-zinc-300 bg-white p-8 text-center">
+          <p className="text-sm font-medium text-zinc-700">
+            No providers match these filters
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            The research pipeline expands the directory continuously — try
+            broadening the search.
+          </p>
+        </div>
       ) : (
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {providers.map((p) => (

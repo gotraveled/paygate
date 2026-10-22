@@ -13,18 +13,25 @@ export const metadata: Metadata = pageMetadata({
 
 export default function BusinessFormationPage() {
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
-        Business Formation Services
-      </h1>
-      <p className="mt-2 max-w-3xl text-zinc-600">
-        Many payment providers require a registered entity in a supported
-        country. These services help form companies, provide registered agents,
-        and supply the documents providers ask for during underwriting.
-      </p>
-      <Suspense fallback={null}>
-        <List />
-      </Suspense>
+    <main>
+      <div className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto max-w-6xl px-4 pb-7 pt-10">
+          <h1 className="text-[28px] font-bold tracking-tight text-ink-950">
+            Business formation services
+          </h1>
+          <p className="mt-2 max-w-3xl text-[15px] leading-6 text-zinc-600">
+            Many payment providers require a registered entity in a supported
+            country. These services help form companies, provide registered
+            agents, and supply the documents providers ask for during
+            underwriting.
+          </p>
+        </div>
+      </div>
+      <div className="mx-auto max-w-6xl px-4 py-7">
+        <Suspense fallback={null}>
+          <List />
+        </Suspense>
+      </div>
     </main>
   );
 }

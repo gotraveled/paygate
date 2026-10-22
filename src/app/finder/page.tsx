@@ -28,21 +28,28 @@ export default function FinderPage({
   searchParams: SearchParams;
 }) {
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10">
-      <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
-        Find a Payment Provider
-      </h1>
-      <p className="mt-2 max-w-2xl text-zinc-600">
-        Results are <strong>potential matches</strong> based on published
-        policies — never guaranteed approvals. Final decisions are made by each
-        provider during underwriting.
-      </p>
-      <Suspense fallback={null}>
-        <FinderForm searchParams={searchParams} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <Results searchParams={searchParams} />
-      </Suspense>
+    <main>
+      <div className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto max-w-4xl px-4 pb-7 pt-10">
+          <h1 className="text-[28px] font-bold tracking-tight text-ink-950">
+            Eligibility Finder
+          </h1>
+          <p className="mt-2 max-w-2xl text-[15px] leading-6 text-zinc-600">
+            Answer three questions to see which providers <em>may</em> accept
+            your business. Results are <strong>potential matches</strong> from
+            published policies — never guaranteed approvals; underwriting
+            decisions rest with each provider.
+          </p>
+        </div>
+      </div>
+      <div className="mx-auto max-w-4xl px-4 py-7">
+        <Suspense fallback={null}>
+          <FinderForm searchParams={searchParams} />
+        </Suspense>
+        <Suspense fallback={null}>
+          <Results searchParams={searchParams} />
+        </Suspense>
+      </div>
     </main>
   );
 }
@@ -57,59 +64,65 @@ async function FinderForm({ searchParams }: { searchParams: SearchParams }) {
     const v = sp[k];
     return Array.isArray(v) ? v[0] : v ?? "";
   };
+  const steps = [
+    { n: 1, label: "Where is your company registered?", input: (
+      <Select name="country" defaultValue={val("country")}>
+        <option value="">Select country…</option>
+        {countries.map((c) => (
+          <option key={c.code} value={c.code}>
+            {c.name}
+          </option>
+        ))}
+      </Select>
+    )},
+    { n: 2, label: "What do you sell?", input: (
+      <Select name="industry" defaultValue={val("industry")}>
+        <option value="">Select industry…</option>
+        {industries.map((i) => (
+          <option key={i.slug} value={i.slug}>
+            {i.name}
+          </option>
+        ))}
+      </Select>
+    )},
+    { n: 3, label: "What do you need to accept?", input: (
+      <Select name="type" defaultValue={val("type")}>
+        <option value="">Any payment type</option>
+        {PAYMENT_TYPES.map((t) => (
+          <option key={t} value={t}>
+            {PAYMENT_TYPE_LABELS[t]}
+          </option>
+        ))}
+      </Select>
+    )},
+  ];
   return (
     <form
       method="get"
       action="/finder"
-      className="mt-6 grid gap-3 rounded-xl border border-zinc-200 bg-white p-5 sm:grid-cols-2"
+      className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm"
     >
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-zinc-700">
-          Where is your company registered?
-        </span>
-        <Select name="country" defaultValue={val("country")}>
-          <option value="">Select country…</option>
-          {countries.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.name}
-            </option>
-          ))}
-        </Select>
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-zinc-700">
-          What do you sell?
-        </span>
-        <Select name="industry" defaultValue={val("industry")}>
-          <option value="">Select industry…</option>
-          {industries.map((i) => (
-            <option key={i.slug} value={i.slug}>
-              {i.name}
-            </option>
-          ))}
-        </Select>
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-zinc-700">
-          Payment type needed
-        </span>
-        <Select name="type" defaultValue={val("type")}>
-          <option value="">Any</option>
-          {PAYMENT_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {PAYMENT_TYPE_LABELS[t]}
-            </option>
-          ))}
-        </Select>
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-zinc-700">
-          Keyword (optional)
-        </span>
-        <Input name="q" defaultValue={val("q")} placeholder="e.g. subscriptions" />
-      </label>
-      <div className="sm:col-span-2">
-        <Button type="submit" className="w-full sm:w-auto">
+      <div className="grid gap-5 sm:grid-cols-3">
+        {steps.map((s) => (
+          <div key={s.n}>
+            <span className="flex items-center gap-2 text-[13px] font-semibold text-ink-950">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 text-[11px] font-bold text-white">
+                {s.n}
+              </span>
+              {s.label}
+            </span>
+            <div className="mt-2.5">{s.input}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-zinc-100 pt-5">
+        <label className="block flex-1 sm:max-w-xs">
+          <span className="mb-1 block text-xs font-medium text-zinc-500">
+            Keyword (optional)
+          </span>
+          <Input name="q" defaultValue={val("q")} placeholder="e.g. subscriptions" />
+        </label>
+        <Button type="submit" className="self-end">
           Show potential matches
         </Button>
       </div>
@@ -148,41 +161,51 @@ async function Results({ searchParams }: { searchParams: SearchParams }) {
           {results.map(({ provider, score, reasons, caveats }) => (
             <li
               key={provider.id}
-              className="rounded-xl border border-zinc-200 bg-white p-5"
+              className="pg-lift rounded-xl border border-zinc-200 bg-white p-5"
             >
               <div className="flex items-start justify-between gap-3">
-                <Link
-                  href={`/providers/${provider.slug}`}
-                  className="text-lg font-semibold text-zinc-900 hover:text-sky-700"
-                >
-                  {provider.name}
-                </Link>
-                <Badge variant="outline">match score {score}</Badge>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href={`/providers/${provider.slug}`}
+                    className="text-lg font-semibold text-ink-950 transition-colors hover:text-brand-700"
+                  >
+                    {provider.name}
+                  </Link>
+                </div>
+                <Badge variant={score >= 3 ? "success" : score >= 1 ? "info" : "muted"}>
+                  match score {score}
+                </Badge>
               </div>
               {reasons.length > 0 && (
-                <ul className="mt-2 space-y-1">
+                <ul className="mt-3 space-y-1.5">
                   {reasons.map((r) => (
-                    <li key={r} className="text-sm text-emerald-800">
-                      + {r}
+                    <li key={r} className="flex items-start gap-2 text-[13px] leading-5 text-mint-800">
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true">
+                        <path d="m9.6 15.6-3.9-3.9L4.3 13l5.3 5.3 11-11-1.4-1.4-9.6 9.7Z" />
+                      </svg>
+                      {r}
                     </li>
                   ))}
                 </ul>
               )}
               {caveats.length > 0 && (
-                <ul className="mt-2 space-y-1">
+                <ul className="mt-3 space-y-1.5">
                   {caveats.map((c) => (
-                    <li key={c} className="text-sm text-amber-800">
-                      ! {c}
+                    <li key={c} className="flex items-start gap-2 text-[13px] leading-5 text-warm-800">
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true">
+                        <path d="M12 2 1 21h22L12 2Zm1 14h-2v-2h2v2Zm0-4h-2v-4h2v4Z" />
+                      </svg>
+                      {c}
                     </li>
                   ))}
                 </ul>
               )}
-              <div className="mt-3">
+              <div className="mt-4 border-t border-zinc-100 pt-3">
                 <Link
                   href={`/providers/${provider.slug}`}
-                  className="text-sm font-medium text-sky-700 hover:underline"
+                  className="text-[13px] font-semibold text-brand-700 transition-colors hover:text-brand-800"
                 >
-                  Review full profile
+                  Review full profile &amp; sources →
                 </Link>
               </div>
             </li>

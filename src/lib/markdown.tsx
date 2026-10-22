@@ -20,7 +20,7 @@ export function Markdown({ source }: { source: string }) {
         if (block.startsWith("### ")) {
           const t = block.slice(4);
           return (
-            <h3 key={i} id={slugify(t)} className="scroll-mt-20 pt-2 text-lg font-semibold text-zinc-900">
+            <h3 key={i} id={slugify(t)} className="scroll-mt-24 pt-2 text-lg font-semibold tracking-tight text-ink-950">
               {inline(t)}
             </h3>
           );
@@ -28,14 +28,15 @@ export function Markdown({ source }: { source: string }) {
         if (block.startsWith("## ")) {
           const t = block.slice(3);
           return (
-            <h2 key={i} id={slugify(t)} className="scroll-mt-20 pt-4 text-xl font-semibold text-zinc-900">
+            <h2 key={i} id={slugify(t)} className="scroll-mt-24 pt-5 text-[22px] font-bold tracking-tight text-ink-950">
+              <span className="mr-2.5 inline-block h-4 w-1 rounded-full bg-brand-600 align-baseline" aria-hidden="true" />
               {inline(t)}
             </h2>
           );
         }
         if (block.split("\n").every((l) => l.trimStart().startsWith("> "))) {
           return (
-            <blockquote key={i} className="rounded-r-md border-l-4 border-amber-300 bg-amber-50 px-4 py-2 text-[14px] text-zinc-700">
+            <blockquote key={i} className="rounded-r-lg border-l-4 border-warm-300 bg-warm-50 px-4 py-2.5 text-[14px] text-warm-900">
               {block.split("\n").map((l, j) => (
                 <p key={j}>{inline(l.trimStart().slice(2))}</p>
               ))}
@@ -48,12 +49,12 @@ export function Markdown({ source }: { source: string }) {
           if (cells.length > 1) {
             const [head, ...body] = cells;
             return (
-              <div key={i} className="overflow-x-auto">
+              <div key={i} className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
                 <table className="w-full border-collapse text-[14px]">
                   <thead>
-                    <tr>
+                    <tr className="bg-zinc-50">
                       {head.map((c, j) => (
-                        <th key={j} className="border-b border-zinc-200 px-3 py-2 text-left font-semibold text-zinc-900">
+                        <th key={j} className="border-b border-zinc-200 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                           {inline(c)}
                         </th>
                       ))}
@@ -61,9 +62,9 @@ export function Markdown({ source }: { source: string }) {
                   </thead>
                   <tbody>
                     {body.map((r, j) => (
-                      <tr key={j}>
+                      <tr key={j} className="last:[&>td]:border-0">
                         {r.map((c, k) => (
-                          <td key={k} className="border-b border-zinc-100 px-3 py-2 align-top">
+                          <td key={k} className="border-b border-zinc-100 px-4 py-2.5 align-top">
                             {inline(c)}
                           </td>
                         ))}
@@ -100,7 +101,11 @@ export function Markdown({ source }: { source: string }) {
 }
 
 function inline(text: string): React.ReactNode {
-  const parts = text.split(/(\[[^\]]*\]\([^)\s]+\)|\*\*[^*]+\*\*)/g);
+  // Order matters: links, then bold (**), then italic (*) — single-star
+  // emphasis must be tried after bold or "**" gets consumed first.
+  const parts = text.split(
+    /(\[[^\]]*\]\([^)\s]+\)|\*\*[^*]+\*\*|\*[^*]+\*)/g
+  );
   return parts.map((part, i) => {
     const link = part.match(/^\[([^\]]*)\]\(([^)\s]+)\)$/);
     if (link) {
@@ -109,7 +114,7 @@ function inline(text: string): React.ReactNode {
         <a
           key={i}
           href={link[2]}
-          className="text-blue-700 underline decoration-blue-300 underline-offset-2 hover:decoration-blue-600"
+          className="font-medium text-brand-700 underline decoration-brand-300 underline-offset-2 transition-colors hover:text-brand-800 hover:decoration-brand-500"
           {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
         >
           {link[1]}
@@ -118,6 +123,9 @@ function inline(text: string): React.ReactNode {
     }
     if (part.startsWith("**") && part.endsWith("**")) {
       return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
     }
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });

@@ -76,7 +76,14 @@ async function main() {
     if (row) {
       await db.providerCountryEligibility.update({
         where: { id: row.id },
-        data: { status, evidenceId: ev.id },
+        data: {
+          status,
+          evidenceId: ev.id,
+          verifiedBy: "local-audit",
+          verifiedAt: new Date(),
+          statusReason: `manually verified against ${sourceUrl}`,
+          confidence: 0.9,
+        },
       });
       console.log("updated claim row:", code, scope, "->", status);
     } else {

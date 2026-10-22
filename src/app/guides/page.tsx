@@ -15,17 +15,23 @@ export const metadata: Metadata = pageMetadata({
 
 export default function GuidesPage() {
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10">
-      <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
-        Guides &amp; Research
-      </h1>
-      <p className="mt-2 text-zinc-600">
-        Articles generated from verified database records and reviewed before
-        publication.
-      </p>
-      <Suspense fallback={null}>
-        <List />
-      </Suspense>
+    <main>
+      <div className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto max-w-6xl px-4 pb-7 pt-10">
+          <h1 className="text-[28px] font-bold tracking-tight text-ink-950">
+            Guides &amp; research
+          </h1>
+          <p className="mt-2 max-w-2xl text-[15px] leading-6 text-zinc-600">
+            Articles generated from verified database records and reviewed
+            before publication — never fabricated.
+          </p>
+        </div>
+      </div>
+      <div className="mx-auto max-w-6xl px-4 py-7">
+        <Suspense fallback={null}>
+          <List />
+        </Suspense>
+      </div>
     </main>
   );
 }
@@ -41,26 +47,26 @@ async function List() {
     );
   }
   return (
-    <ul className="mt-6 space-y-3">
+    <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {pages.map((p) => (
         <li key={p.id}>
           <Link
             href={`/guides/${p.slug}`}
-            className="block rounded-xl border border-zinc-200 bg-white p-4 hover:border-zinc-900"
+            className="pg-lift block h-full rounded-xl border border-zinc-200 bg-white p-5"
           >
             <div className="flex items-center gap-2">
-              <Badge variant="secondary">{p.type}</Badge>
+              <Badge variant="info">{p.type}</Badge>
               {p.publishedAt && (
-                <span className="text-xs text-zinc-400">
+                <span className="text-[11px] text-zinc-400">
                   {formatDate(p.publishedAt)}
                 </span>
               )}
             </div>
-            <span className="mt-1 block font-medium text-zinc-900">
+            <span className="mt-2.5 block text-[15px] font-semibold leading-6 text-ink-950">
               {p.title}
             </span>
             {p.summary && (
-              <span className="mt-1 block text-sm text-zinc-500 line-clamp-2">
+              <span className="mt-1.5 block text-[13px] leading-5 text-zinc-500 line-clamp-3">
                 {p.summary}
               </span>
             )}
