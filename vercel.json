@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron?mode=drain",
-      "schedule": "*/30 * * * *"
+      "schedule": "45 6 * * *"
     }
   ]
 }
