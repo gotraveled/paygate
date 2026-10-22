@@ -20,6 +20,20 @@ function createClient(): PrismaClient {
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const db = globalForPrisma.prisma ?? createClient();
+function getClient(): PrismaClient {
+  return (globalForPrisma.prisma ??= createClient());
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db;
+/**
+ * Lazy proxy: `next build` evaluates route modules while collecting page
+ * data, and constructing PrismaClient at module scope makes the build
+ * fail when the adapter can't initialize in the build environment.
+ * Defer construction to the first actual use at request time.
+ */
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getClient();
+    const value = Reflect.get(client, prop);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});
