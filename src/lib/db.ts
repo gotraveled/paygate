@@ -11,13 +11,28 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * Vercel's database integrations can expose the connection under several
  * env var names — check them all rather than assuming DATABASE_URL.
  */
+const URL_CANDIDATES = () =>
+  [
+    process.env.PRISMA_DATABASE_URL,
+    process.env.DATABASE_URL,
+    process.env.PRISMA_POSTGRES_URL,
+    process.env.POSTGRES_PRISMA_URL,
+    process.env.POSTGRES_URL_NON_POOLING,
+    process.env.POSTGRES_URL,
+  ].filter((u): u is string => Boolean(u));
+
 function resolveUrl(): string {
+  const set = URL_CANDIDATES();
+  // Prefer prisma+postgres:// (Accelerate): the generated client is
+  // compiled for provider "sqlite", so a driver adapter like pg is
+  // rejected at construction — only the accelerateUrl path works with
+  // a remote database without regenerating for postgresql.
   return (
-    process.env.DATABASE_URL ??
-    process.env.PRISMA_POSTGRES_URL ??
-    process.env.POSTGRES_PRISMA_URL ??
-    process.env.POSTGRES_URL_NON_POOLING ??
-    process.env.POSTGRES_URL ??
+    set.find(
+      (u) => u.startsWith("prisma://") || u.startsWith("prisma+postgres://")
+    ) ??
+    set.find((u) => u.startsWith("file:")) ??
+    set[0] ??
     "file:./prisma/dev.db"
   );
 }
