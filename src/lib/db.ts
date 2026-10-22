@@ -3,16 +3,37 @@ import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
- * Prisma 7 uses driver adapters. Select the adapter from DATABASE_URL:
- *   file:...        -> better-sqlite3 (local development)
- *   postgres://...  -> pg driver adapter (Supabase / production)
+ * Prisma 7 uses driver adapters. Select the adapter from the connection URL:
+ *   file:...                  -> better-sqlite3 (local development)
+ *   postgres://...            -> pg driver adapter (Supabase / direct Postgres)
+ *   prisma+postgres://...     -> Prisma Postgres / Accelerate (Vercel integration)
+ *
+ * Vercel's database integrations can expose the connection under several
+ * env var names — check them all rather than assuming DATABASE_URL.
  */
+function resolveUrl(): string {
+  return (
+    process.env.DATABASE_URL ??
+    process.env.PRISMA_POSTGRES_URL ??
+    process.env.POSTGRES_PRISMA_URL ??
+    process.env.POSTGRES_URL_NON_POOLING ??
+    process.env.POSTGRES_URL ??
+    "file:./prisma/dev.db"
+  );
+}
+
 function createClient(): PrismaClient {
-  const url = process.env.DATABASE_URL ?? "file:./prisma/dev.db";
+  const url = resolveUrl();
   if (url.startsWith("file:")) {
     const filePath = url.slice("file:".length);
     const adapter = new PrismaBetterSqlite3({ url: filePath });
     return new PrismaClient({ adapter });
+  }
+  // Prisma Postgres / Accelerate URLs (what Vercel's Prisma integration
+  // provisions) use the prisma+postgres:// or prisma:// scheme — the pg
+  // driver adapter can't speak that protocol.
+  if (url.startsWith("prisma://") || url.startsWith("prisma+postgres://")) {
+    return new PrismaClient({ accelerateUrl: url });
   }
   const adapter = new PrismaPg({ connectionString: url });
   return new PrismaClient({ adapter });
